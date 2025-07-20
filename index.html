@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suivi Matériel Informatique</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Suivi Matériel Informatique</h1>
+            <div class="header-controls">
+                <div class="room-selector">
+                    <label for="roomSelect">Choisir une salle:</label>
+                    <select id="roomSelect"></select>
+                </div>
+                <span id="lastSaved"></span>
+                <img src="logo.png" alt="Logo Lycée Urbain Vitry" class="header-logo">
+            </div>
+        </header>
+
+        <main>
+            <h2 id="roomTitle"></h2>
+            <div class="table-container">
+                <table id="inventoryTable">
+                    <thead>
+                        <tr>
+                            <th>Numéro PC</th>
+                            <th>N° Prise RJ45</th>
+                            <th>État PC</th>
+                            <th>Écran 1</th>
+                            <th>Écran 2</th>
+                            <th>Problème Logiciel</th>
+                            <th>Problème Périphérique</th>
+                            <th>Observations</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventoryBody">
+                        </tbody>
+                </table>
+            </div>
+
+            <section class="observations-container">
+                <div class="observations-header">
+                    <h3>Observations Générales (pour la salle)</h3>
+                    <button id="resetObservationBtn" class="btn btn-secondary" aria-label="Réinitialiser l'observation générale">Réinitialiser</button>
+                </div>
+                <textarea id="generalObservation" rows="4" placeholder="Inscrire ici les observations générales pour l'ensemble de la salle..."></textarea>
+            </section>
+        </main>
+        
+        <footer>
+            <button id="reportButton" class="btn btn-primary">Générer le rapport</button>
+            <div id="feedbackStatus"></div>
+        </footer>
+    </div>
+
+    <div id="reportModal" class="modal">
+        <div class="modal-content">
+            <header class="modal-header">
+                <h2>Rapport de Problème</h2>
+                <button class="close-button" aria-label="Fermer">&times;</button>
+            </header>
+            <div class="modal-body">
+                <pre id="reportContent"></pre>
+            </div>
+            <footer class="modal-footer">
+                <p>Ouvrir avec :</p>
+                <div class="email-icons">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/7/7e/Gmail_icon_%282020%29.svg" alt="Gmail" class="email-icon" data-client="gmail">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/d/df/Microsoft_Office_Outlook_%282018%E2%80%93present%29.svg" alt="Outlook" class="email-icon" data-client="outlook">
+                    <img src="https://www.ac-toulouse.fr/sites/ac_toulouse/files/styles/desktop_image_xs/public/2021-10/logo-academie-toulouse-131854.jpg?itok=KMxqHkgZ" alt="Client Mail par défaut" class="email-icon" data-client="default">
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
