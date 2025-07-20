@@ -18,10 +18,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const reportButton = document.getElementById('reportButton');
     const modal = document.getElementById('reportModal');
     const closeModalButton = document.querySelector('.close-button');
-    const emailIcons = document.querySelector('.email-icons');
+    // const emailIcons = document.querySelector('.email-icons'); // This is no longer needed
     const lastSavedEl = document.getElementById('lastSaved');
     const generalObservationTextarea = document.getElementById('generalObservation');
     const resetObservationBtn = document.getElementById('resetObservationBtn');
+    const sendEmailButton = document.getElementById('sendEmailButton'); // New button reference
 
     let inventoryData = {};
     let currentRoom = '';
@@ -150,7 +151,8 @@ document.addEventListener('DOMContentLoaded', () => {
         reportButton.addEventListener('click', handleReportGeneration);
         closeModalButton.addEventListener('click', () => modal.style.display = "none");
         window.addEventListener('click', (e) => { if (e.target == modal) modal.style.display = "none"; });
-        emailIcons.addEventListener('click', handleEmailClientSelection);
+        // emailIcons.addEventListener('click', handleEmailClientSelection); // Removed
+        sendEmailButton.addEventListener('click', sendReportViaGmail); // New event listener for direct send
         generalObservationTextarea.addEventListener('input', handleObservationChange);
         resetObservationBtn.addEventListener('click', handleResetObservation);
     }
@@ -250,26 +252,16 @@ document.addEventListener('DOMContentLoaded', () => {
         );
     }
 
-    function handleEmailClientSelection(e) {
-        if (!e.target.classList.contains('email-icon')) return;
-        const subject = encodeURIComponent(`Rapport Informatique - Bâtiment 13 / Salle ${currentRoom}`);
+    // NEW FUNCTION: Direct Gmail send
+    function sendReportViaGmail() {
+        const subject = encodeURIComponent(`Problème informatique Bât 13 - Salle ${currentRoom}`);
         const body = encodeURIComponent(document.getElementById('reportContent').textContent);
         const recipient = "prof.gcce1@gmail.com";
-        const client = e.target.dataset.client;
-
-        switch(client) {
-            case 'gmail':
-                window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${recipient}&su=${subject}&body=${body}`, '_blank');
-                break;
-            case 'outlook':
-                window.open(`https://outlook.office.com/mail/deeplink/compose?to=${recipient}&subject=${subject}&body=${body}`, '_blank');
-                break;
-            default:
-                window.location.href = `mailto:${recipient}?subject=${subject}&body=${body}`;
-        }
+        
+        window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${recipient}&su=${subject}&body=${body}`, '_blank');
         
         modal.style.display = "none";
-        showFeedback("Votre client de messagerie a été ouvert.", true);
+        showFeedback("Ouverture de Gmail avec le rapport pré-rempli.", true);
     }
 
     function populateRoomSelector() {
