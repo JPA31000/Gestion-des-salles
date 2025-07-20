@@ -59,16 +59,36 @@ h3 { margin-bottom: 0.5rem; }
     gap: 1rem;
 }
 
-#lastSaved {
-    font-size: 0.8rem;
-    color: #6c757d;
+/* Removed specific #lastSaved styling from here */
+
+/* New styles for the logo container and version text */
+.logo-container {
+    display: flex;
+    flex-direction: column; /* Stack logo and text vertically */
+    align-items: center;    /* Center content horizontally */
+    margin-left: auto;      /* Pushes the logo container to the right */
 }
 
-/* Styles for the logo */
 .header-logo {
     max-height: 50px; /* Adjust as needed */
-    margin-left: auto; /* Pushes the logo to the right */
+    margin-bottom: 5px; /* Space between logo and text */
 }
+
+.version-text {
+    font-size: 0.75rem; /* Smaller font size */
+    color: #6c757d;     /* A subtle grey color */
+    text-align: center; /* Ensure text is centered below the logo */
+}
+
+/* New style for the timestamp below the title */
+.last-saved-below-title {
+    display: block; /* Ensures it takes its own line */
+    text-align: left;
+    font-size: 0.85rem;
+    color: #6c757d;
+    margin-bottom: 1rem; /* Space below the timestamp and above the table */
+}
+
 
 .table-container {
     overflow-x: auto;

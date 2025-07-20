@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
         statuses: {
             generic: ['Ok', 'HS', 'Pas de connexion', 'Ne s\'allume pas', 'Très lent', 'Fige / Se bloque', 'Écran bleu / BSOD', 'Redémarre en boucle', 'Couleurs anormales (Écran)', 'Abîmé'],
             software: ['RAS', 'Session impossible (Windows)', 'Ne se lance pas (Général)', 'Plante / Se ferme (Général)', 'Erreur de licence', 'Revit', 'Naviswork', 'Twinmotion', 'Epic games', 'Autocad', 'Libreoffice', 'Bimvision', 'CYPE'],
-            peripheral: ['RAS', 'Manque souris', 'Manque clavier', 'Manque alim elec', 'Manque rj45', 'Manque Connexion ecran', 'Souris HS', 'Clavier HS', 'Souris non détectée', 'Clavier non détecté', 'Port USB HS', 'Câble défectueux']
+            peripheral: ['RAS', 'Manque souris', 'Manque clavier', 'Manque alim elec', 'Manque rj45', 'Manque Connexion ecran', 'Souris HS', 'Clavier HS', 'Souris non détectée', 'Clavier non détectée', 'Port USB HS', 'Câble défectueux']
         }
     };
 
@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentRoom = roomSelect.value;
         displayRoomData(currentRoom);
         setupEventListeners();
+        updateLastSaved(); // Call this to display initial timestamp
     }
 
     // MODIFIÉ: Structure de données simplifiée pour les observations
@@ -73,7 +74,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateLastSaved() {
         const now = new Date();
-        lastSavedEl.textContent = `Dernière sauvegarde: ${now.toLocaleTimeString()}`;
+        // MODIFIED: Only display date and time without version
+        lastSavedEl.textContent = `Dernière sauvegarde: ${now.toLocaleDateString('fr-FR')} ${now.toLocaleTimeString('fr-FR')}`;
     }
 
     function updateCellData(room, rowIndex, field, value) {
@@ -100,6 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         generalObservationTextarea.value = roomData.generalObservation || '';
+        updateLastSaved(); // Ensure timestamp is updated when room data is displayed
     }
 
     function generateRowHTML(item) {
@@ -215,6 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body += `-----------------------------------------\n`;
                 body += `Ordinateur: ${p.pcNumber}\n`;
                 body += `Date du signalement: ${new Date(p.lastModified).toLocaleString('fr-FR')}\n`;
+                if (p.rj45 && p.rj45.trim() !== 'RJ45-') body += `N° Prise RJ45: ${p.rj45}\n`;
                 body += `Détails:\n`;
                 if (p.pcStatus !== 'Ok') body += `- État PC: ${p.pcStatus}\n`;
                 if (p.screen1 !== 'Ok') body += `- Écran 1: ${p.screen1}\n`;
