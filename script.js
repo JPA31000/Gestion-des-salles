@@ -15,14 +15,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const roomSelect = document.getElementById('roomSelect');
     const roomTitle = document.getElementById('roomTitle');
     const inventoryBody = document.getElementById('inventoryBody');
+    const pcCheckboxesContainer = document.getElementById('pc-checkboxes');
+    const toggleAllPcsBtn = document.getElementById('toggleAllPcsBtn');
     const reportButton = document.getElementById('reportButton');
     const modal = document.getElementById('reportModal');
     const closeModalButton = document.querySelector('.close-button');
-    // const emailIcons = document.querySelector('.email-icons'); // This is no longer needed
     const lastSavedEl = document.getElementById('lastSaved');
     const generalObservationTextarea = document.getElementById('generalObservation');
     const resetObservationBtn = document.getElementById('resetObservationBtn');
-    const sendEmailButton = document.getElementById('sendEmailButton'); // New button reference
+    const sendEmailButton = document.getElementById('sendEmailButton');
 
     let inventoryData = {};
     let currentRoom = '';
@@ -34,16 +35,14 @@ document.addEventListener('DOMContentLoaded', () => {
         currentRoom = roomSelect.value;
         displayRoomData(currentRoom);
         setupEventListeners();
-        updateLastSaved(); // Call this to display initial timestamp
+        updateLastSaved();
     }
 
-    // MODIFIÉ: Structure de données simplifiée pour les observations
     function loadData() {
         const savedData = localStorage.getItem(CONFIG.storageKey);
         inventoryData = savedData ? JSON.parse(savedData) : generateDefaultData();
     }
     
-    // MODIFIÉ: Génère la nouvelle structure de données avec une seule observation
     function generateDefaultData() {
         const data = {};
         CONFIG.rooms.forEach(room => {
@@ -75,7 +74,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateLastSaved() {
         const now = new Date();
-        // MODIFIED: Only display date and time without version
         lastSavedEl.textContent = `Dernière sauvegarde: ${now.toLocaleDateString('fr-FR')} ${now.toLocaleTimeString('fr-FR')}`;
     }
 
@@ -89,10 +87,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function displayRoomData(room) {
         currentRoom = room;
         roomTitle.textContent = `État du matériel - Salle ${room}`;
-        inventoryBody.innerHTML = ''; // Toujours vider le tableau avant de le remplir
+        inventoryBody.innerHTML = '';
 
         const roomData = inventoryData[room];
-        if (!roomData || !roomData.items) return; // Sécurité pour éviter les erreurs
+        if (!roomData || !roomData.items) return;
 
         roomData.items.forEach((item, index) => {
             const row = document.createElement('tr');
@@ -102,8 +100,9 @@ document.addEventListener('DOMContentLoaded', () => {
             updateRowStyle(row);
         });
 
+        populatePcCheckboxes(room);
         generalObservationTextarea.value = roomData.generalObservation || '';
-        updateLastSaved(); // Ensure timestamp is updated when room data is displayed
+        updateLastSaved();
     }
 
     function generateRowHTML(item) {
@@ -146,15 +145,56 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Gestion des Événements ---
     function setupEventListeners() {
         roomSelect.addEventListener('change', (e) => displayRoomData(e.target.value));
+        
+        pcCheckboxesContainer.addEventListener('change', (e) => {
+            if (e.target.type === 'checkbox') {
+                filterTableRows();
+            }
+        });
+        toggleAllPcsBtn.addEventListener('click', handleToggleAllPcs);
+
         inventoryBody.addEventListener('input', handleTableInput);
         inventoryBody.addEventListener('click', handleTableClick);
         reportButton.addEventListener('click', handleReportGeneration);
         closeModalButton.addEventListener('click', () => modal.style.display = "none");
         window.addEventListener('click', (e) => { if (e.target == modal) modal.style.display = "none"; });
-        // emailIcons.addEventListener('click', handleEmailClientSelection); // Removed
-        sendEmailButton.addEventListener('click', sendReportViaGmail); // New event listener for direct send
+        sendEmailButton.addEventListener('click', sendReportViaGmail);
         generalObservationTextarea.addEventListener('input', handleObservationChange);
         resetObservationBtn.addEventListener('click', handleResetObservation);
+    }
+
+    function filterTableRows() {
+        const checkboxes = pcCheckboxesContainer.querySelectorAll('input[type="checkbox"]');
+        const selectedIndices = new Set();
+        let allSelected = true;
+
+        checkboxes.forEach(cb => {
+            if (cb.checked) {
+                selectedIndices.add(cb.value);
+            } else {
+                allSelected = false;
+            }
+        });
+
+        inventoryBody.querySelectorAll('tr').forEach(row => {
+            const rowIndex = row.dataset.rowIndex;
+            row.style.display = selectedIndices.has(rowIndex) ? '' : 'none';
+        });
+
+        toggleAllPcsBtn.textContent = allSelected ? 'Tout Désélectionner' : 'Tout Sélectionner';
+    }
+
+    function handleToggleAllPcs() {
+        const checkboxes = pcCheckboxesContainer.querySelectorAll('input[type="checkbox"]');
+        if (checkboxes.length === 0) return;
+
+        const shouldSelectAll = Array.from(checkboxes).some(cb => !cb.checked);
+        
+        checkboxes.forEach(cb => {
+            cb.checked = shouldSelectAll;
+        });
+
+        filterTableRows();
     }
 
     function handleTableInput(e) {
@@ -188,13 +228,11 @@ document.addEventListener('DOMContentLoaded', () => {
         showFeedback(`La ligne pour le PC ${defaultRowData.pcNumber} a été réinitialisée.`, true);
     }
 
-    // MODIFIÉ: Gère le champ d'observation unique
     function handleObservationChange(e) {
         inventoryData[currentRoom].generalObservation = e.target.value;
         saveData();
     }
 
-    // MODIFIÉ: Réinitialise le champ d'observation unique
     function handleResetObservation() {
         inventoryData[currentRoom].generalObservation = "";
         saveData();
@@ -252,7 +290,6 @@ document.addEventListener('DOMContentLoaded', () => {
         );
     }
 
-    // NEW FUNCTION: Direct Gmail send
     function sendReportViaGmail() {
         const subject = encodeURIComponent(`Problème informatique Bât 13 - Salle ${currentRoom}`);
         const body = encodeURIComponent(document.getElementById('reportContent').textContent);
@@ -264,6 +301,8 @@ document.addEventListener('DOMContentLoaded', () => {
         showFeedback("Ouverture de Gmail avec le rapport pré-rempli.", true);
     }
 
+
+
     function populateRoomSelector() {
         if(!roomSelect) return;
         CONFIG.rooms.forEach(room => {
@@ -272,6 +311,30 @@ document.addEventListener('DOMContentLoaded', () => {
             option.textContent = `Salle ${room}`;
             roomSelect.appendChild(option);
         });
+    }
+
+    function populatePcCheckboxes(room) {
+        pcCheckboxesContainer.innerHTML = '';
+        if (!inventoryData[room] || !inventoryData[room].items) return;
+
+        inventoryData[room].items.forEach((item, index) => {
+            const wrapper = document.createElement('div');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.id = `pc-check-${index}`;
+            checkbox.value = index;
+            checkbox.checked = false; // Modifié pour être décoché par défaut
+
+            const label = document.createElement('label');
+            label.htmlFor = `pc-check-${index}`;
+            label.textContent = item.pcNumber;
+
+            wrapper.appendChild(checkbox);
+            wrapper.appendChild(label);
+            pcCheckboxesContainer.appendChild(wrapper);
+        });
+        
+        filterTableRows();
     }
 
     // --- Démarrage de l'Application ---

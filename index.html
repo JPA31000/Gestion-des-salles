@@ -23,8 +23,19 @@
         </header>
 
         <main>
+            <div id="instructions">
+                <i>Ce formulaire enregistre automatiquement les modifications dans la mémoire de votre navigateur (sauvegarde locale). Pour signaler les problèmes, vous devez générer manuellement un rapport. L'affichage des PC peut être filtré ci-dessous.</i>
+            </div>
             <h2 id="roomTitle"></h2>
             <span id="lastSaved" class="last-saved-below-title"></span>
+            
+            <div id="pc-filter-container">
+                <h4>Filtrer l'affichage des PC</h4>
+                <div id="pc-checkboxes" class="checkbox-grid">
+                    </div>
+                <button id="toggleAllPcsBtn" class="btn btn-secondary">Tout Désélectionner</button>
+            </div>
+
             <div class="table-container">
                 <table id="inventoryTable">
                     <thead>
