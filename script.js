@@ -292,7 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function sendReportViaGmail() {
         const subject = encodeURIComponent(`Problème informatique Bât 13 - Salle ${currentRoom}`);
         const body = encodeURIComponent(document.getElementById('reportContent').textContent);
-        const recipient = "prof.gcce1@gmail.com";
+        const recipient = "reseauinfovitry@gmail.com";
 
         window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${recipient}&su=${subject}&body=${body}`, '_blank');
 
