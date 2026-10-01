@@ -1,4 +1,4 @@
-/* Suivi du matériel informatique — V 2.0
+/* Suivi du matériel informatique — V 2.4
  * Plans des salles, fiche par poste, rapport au service réseau.
  * Les données restent dans le navigateur (localStorage). */
 (() => {

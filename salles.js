@@ -26,7 +26,7 @@ const ECRAN = [
 ];
 
 window.CONFIG_SALLES = {
-  version: '2.0',
+  version: '2.4',
   batiment: 'Bât 13',
   destinataire: 'reseauinfovitry@gmail.com',
   signature: "L'équipe GCCE",
