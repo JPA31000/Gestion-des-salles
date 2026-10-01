@@ -12,6 +12,19 @@
  * Le bouton « Ajuster le plan » de l'application permet de déplacer les postes
  * puis de copier ici la configuration obtenue.
  */
+
+// Rubriques communes aux deux écrans
+const ECRAN = [
+  { nom: 'Affichage', options: [
+    "Pas d'image", 'Message « Aucun signal »', "Ne s'allume pas", 'Image floue / mauvaise résolution',
+    'Couleurs anormales', 'Image qui scintille', 'Lignes ou taches', 'Pixels morts'] },
+  { nom: 'Matériel', options: [
+    'HS', 'Rayé / fissuré', 'Pied cassé ou instable', 'Boutons cassés', 'Câble vidéo manquant',
+    "Câble d'alimentation manquant", 'Absent'] },
+  { nom: 'Réglages', options: [
+    'Écrans inversés (gauche / droite)', 'Affichage en double (recopie)'] }
+];
+
 window.CONFIG_SALLES = {
   version: '2.0',
   batiment: 'Bât 13',
@@ -25,22 +38,57 @@ window.CONFIG_SALLES = {
     url: 'https://script.google.com/macros/s/AKfycbxi61deRjn9UEA7mKIF66veD77TgqgbvsUBVV4zYhvJhPu63uuNht8u60BfdiQdqf15/exec'
   },
 
+  /* Thèmes de pannes : chaque thème est un menu dépliant de la fiche du poste,
+     découpé en rubriques. On peut ajouter ou retirer des libellés librement ;
+     un libellé déjà coché et retiré d'ici reste visible dans la rubrique « Autres ». */
   categories: [
-    { id: 'pc', nom: 'Unité centrale', court: 'UC', options: [
-      'HS', "Ne s'allume pas", 'Pas de connexion réseau', 'Très lent', 'Fige / se bloque',
-      'Écran bleu (BSOD)', 'Redémarre en boucle', 'Bruit anormal', 'Abîmé'] },
-    { id: 'screen1', nom: 'Écran 1', court: 'É1', options: [
-      'HS', "Pas d'image", "Ne s'allume pas", 'Couleurs anormales', 'Image qui scintille',
-      'Rayé / fissuré', 'Câble manquant', 'Absent'] },
-    { id: 'screen2', nom: 'Écran 2', court: 'É2', options: [
-      'HS', "Pas d'image", "Ne s'allume pas", 'Couleurs anormales', 'Image qui scintille',
-      'Rayé / fissuré', 'Câble manquant', 'Absent'] },
-    { id: 'software', nom: 'Logiciels', court: 'Log', options: [
-      'Session impossible (Windows)', 'Ne se lance pas', 'Plante / se ferme', 'Erreur de licence',
-      'Revit', 'Navisworks', 'Twinmotion', 'Epic Games', 'AutoCAD', 'LibreOffice', 'BIMvision', 'CYPE'] },
-    { id: 'peripheral', nom: 'Périphériques', court: 'Pér', options: [
-      'Manque souris', 'Manque clavier', 'Manque alimentation', 'Manque câble RJ45', 'Manque câble écran',
-      'Souris HS', 'Clavier HS', 'Souris non détectée', 'Clavier non détecté', 'Port USB HS', 'Câble défectueux'] }
+    { id: 'pc', nom: 'Unité centrale', court: 'UC', icone: 'uc', groupes: [
+      { nom: 'Démarrage', options: [
+        "Ne s'allume pas", "S'éteint tout seul", 'Redémarre en boucle', 'Bloqué au démarrage',
+        'Bips au démarrage', 'Écran bleu (BSOD)', '« Aucun périphérique de démarrage »'] },
+      { nom: 'Fonctionnement', options: [
+        'Très lent', 'Fige / se bloque', 'Surchauffe', 'Bruit anormal', 'Date et heure fausses (pile)',
+        'Disque plein', 'Mises à jour bloquées', 'Virus ou fenêtres suspectes'] },
+      { nom: 'État du matériel', options: [
+        'HS', 'Abîmé', 'Bouton marche cassé', 'Capot ouvert ou manquant', 'Port USB avant HS',
+        'Prise casque HS', "Câble d'alimentation manquant", 'Unité absente'] }
+    ] },
+    { id: 'screen1', nom: 'Écran 1', court: 'É1', icone: 'ecran', groupes: ECRAN },
+    { id: 'screen2', nom: 'Écran 2', court: 'É2', icone: 'ecran', groupes: ECRAN },
+    { id: 'peripheral', nom: 'Clavier, souris et son', court: 'Pér', icone: 'periph', groupes: [
+      { nom: 'Clavier', options: [
+        'Manque clavier', 'Clavier HS', 'Clavier non détecté', 'Touches manquantes ou bloquées', 'Clavier en QWERTY'] },
+      { nom: 'Souris', options: [
+        'Manque souris', 'Souris HS', 'Souris non détectée', 'Clic ou molette défectueux'] },
+      { nom: 'Son et vidéo', options: [
+        'Casque manquant', 'Pas de son', 'Micro HS', 'Webcam HS'] },
+      { nom: 'Branchements', options: [
+        'Manque alimentation', 'Manque câble écran', 'Port USB HS', 'Câble défectueux'] }
+    ] },
+    { id: 'software', nom: 'Logiciels et session', court: 'Log', icone: 'logiciel', groupes: [
+      { nom: 'Session Windows', options: [
+        'Session impossible (Windows)', 'Mot de passe refusé / compte bloqué', 'Profil temporaire (bureau vide)',
+        'Ouverture de session très longue'] },
+      { nom: 'Problème', options: [
+        'Ne se lance pas', 'Plante / se ferme', 'Erreur de licence', 'Logiciel absent (à installer)',
+        'Mise à jour demandée', 'Très lent dans le logiciel'] },
+      { nom: 'Logiciel concerné', options: [
+        'Revit', 'AutoCAD', 'Navisworks', 'Twinmotion', 'Epic Games', 'SketchUp', 'BIMvision', 'CYPE',
+        'LibreOffice', 'Microsoft Office', 'Navigateur Internet', 'Lecteur PDF'] }
+    ] },
+    { id: 'reseau', nom: 'Réseau et Internet', court: 'Rés', icone: 'reseau', groupes: [
+      { nom: 'Connexion', options: [
+        'Pas de connexion réseau', 'Internet très lent', 'Site bloqué par le filtrage',
+        'Lecteurs réseau inaccessibles', 'Impression impossible (imprimante)'] },
+      { nom: 'Branchements', options: [
+        'Manque câble RJ45', 'Câble RJ45 abîmé', 'Prise réseau murale HS'] }
+    ] },
+    { id: 'poste', nom: 'Poste et électricité', court: 'Poste', icone: 'prise', groupes: [
+      { nom: 'Électricité', options: [
+        'Prise électrique HS', 'Multiprise manquante ou HS', 'Câbles dangereux (dénudés, au sol)'] },
+      { nom: 'Mobilier et propreté', options: [
+        'Table abîmée', 'Chaise cassée', 'Poste sale', 'Étiquette du poste manquante', 'Antivol arraché'] }
+    ] }
   ],
 
   salles: {

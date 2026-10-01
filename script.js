@@ -6,6 +6,11 @@
 
   const CFG = window.CONFIG_SALLES;
   const CATS = CFG.categories;
+  // Chaque thème est découpé en rubriques ; « options » = tous ses libellés, dans l'ordre
+  CATS.forEach(c => {
+    if (Array.isArray(c.groupes)) c.options = c.groupes.flatMap(g => g.options);
+    else c.groupes = [{ nom: '', options: c.options || [] }];
+  });
   const SALLES = Object.keys(CFG.salles);
   const CLE = 'gestionSalles_v4';
   const CLE_V3 = 'itInventoryData_v3';
@@ -23,6 +28,30 @@
     'Bimvision': 'BIMvision', 'Manque alim elec': 'Manque alimentation', 'Manque rj45': 'Manque câble RJ45',
     'Manque Connexion ecran': 'Manque câble écran', 'Clavier non détectée': 'Clavier non détecté'
   };
+  // Libellés de la V 2.0 renommés en V 2.3
+  const ALIAS = { 'Câble manquant': 'Câble vidéo manquant' };
+
+  // Range chaque libellé coché dans son thème : un libellé déplacé d'un thème à un autre
+  // (ex. « Pas de connexion réseau », passé de l'unité centrale au réseau) suit, s'il n'existe
+  // que dans un seul thème ; sinon il reste où il est, dans la rubrique « Autres ».
+  function rangerPb(src) {
+    const pb = Object.fromEntries(CATS.map(c => [c.id, []]));
+    for (const [id, valeurs] of Object.entries(src || {})) {
+      if (!Array.isArray(valeurs)) continue;
+      const c = CATS.find(x => x.id === id);
+      for (let v of valeurs) {
+        v = String(v);
+        if (ALIAS[v]) v = ALIAS[v];
+        let cible = c;
+        if (!c || !c.options.includes(v)) {
+          const autres = CATS.filter(x => x.options.includes(v));
+          if (autres.length === 1) cible = autres[0];
+        }
+        if (cible && !pb[cible.id].includes(v)) pb[cible.id].push(v);
+      }
+    }
+    return pb;
+  }
 
   // ---------- Outils ----------
   const $ = (s, r = document) => r.querySelector(s);
@@ -81,7 +110,7 @@
       R.serveur = s.serveur || null;
       for (const [n, p] of Object.entries(s.pcs || {})) {
         const P = pcVide();
-        for (const c of CATS) P.pb[c.id] = Array.isArray(p?.pb?.[c.id]) ? p.pb[c.id].map(String) : [];
+        P.pb = rangerPb(p?.pb);
         P.obs = String(p?.obs || '');
         P.modifie = p?.modifie || null;
         P.signale = p?.signale || null;
@@ -112,6 +141,7 @@
         P.pb.software = val(it.software, 'RAS');
         P.pb.peripheral = val(it.peripheral, 'RAS');
         P.obs = String(it.observation || '');
+        P.pb = rangerPb(P.pb);
         if (aProbleme(P)) { P.modifie = it.lastModified || maintenant(); R.pcs[n] = P; }
       });
     }
@@ -256,7 +286,7 @@
   }
 
   // ---------- État de l'interface ----------
-  const ui = { salle: SALLES[0], sel: null, vue: 'plan', filtre: 'tous', edition: false };
+  const ui = { salle: SALLES[0], sel: null, vue: 'plan', filtre: 'tous', edition: false, catOuverte: null, rechPb: '' };
   try {
     const pr = JSON.parse(localStorage.getItem(CLE_PREFS) || '{}');
     if (SALLES.includes(pr.salle)) ui.salle = pr.salle;
@@ -427,15 +457,66 @@
     return esc(l.join(' · '));
   }
 
-  function blocCategorie(c, p) {
-    const sel = p.pb[c.id];
-    const opts = [...c.options, ...sel.filter(v => !c.options.includes(v))];
-    return `<div class="cat" data-cat="${c.id}">
-      <div class="cat-head"><h4>${esc(c.nom)}</h4><span class="etat${sel.length ? ' ko' : ''}">${etatCategorie(sel)}</span></div>
-      <div class="chips">${opts.map(o => `<button type="button" class="chip${c.options.includes(o) ? '' : ' hors'}" data-val="${esc(o)}" aria-pressed="${sel.includes(o)}">${esc(o)}</button>`).join('')}</div>
-    </div>`;
+  // Icônes des thèmes (traits, couleur du texte)
+  const svgIco = d => `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+  const ICONES = {
+    uc: svgIco('<rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M10 6.5h4M10 9.5h4"/><circle cx="12" cy="16.5" r="1.3"/>'),
+    ecran: svgIco('<rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M12 16.5V20M8 20h8"/>'),
+    periph: svgIco('<rect x="2" y="10" width="13" height="8" rx="1.5"/><path d="M5 13h1M8 13h1M11 13h1M6 15.5h5"/><rect x="17" y="7" width="5" height="9" rx="2.5"/><path d="M19.5 7v3"/>'),
+    logiciel: svgIco('<rect x="2.5" y="3.5" width="19" height="17" rx="2"/><path d="M2.5 8h19"/><path d="M9 12.5l-2.5 2.5L9 17.5M15 12.5l2.5 2.5-2.5 2.5"/>'),
+    reseau: svgIco('<rect x="9" y="2.5" width="6" height="5" rx="1"/><rect x="2.5" y="16.5" width="6" height="5" rx="1"/><rect x="15.5" y="16.5" width="6" height="5" rx="1"/><path d="M12 7.5v4.5M5.5 16.5V12h13v4.5"/>'),
+    prise: svgIco('<path d="M9 2.5v5M15 2.5v5"/><path d="M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0z"/><path d="M12 16.5v5"/>')
+  };
+  const CHEVRON = svgIco('<path d="M6 9l6 6 6-6"/>');
+  const sansAccent = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+  // Un thème = un menu dépliant : en-tête (icône, nom, ce qui est coché, nombre), puis ses rubriques
+  function htmlCategories(p) {
+    const f = sansAccent((ui.rechPb || '').trim());
+    const html = CATS.map(c => {
+      const sel = p.pb[c.id];
+      const groupes = c.groupes.slice();
+      const autres = sel.filter(v => !c.options.includes(v));
+      if (autres.length) groupes.push({ nom: 'Autres', options: autres });
+      // Recherche : le thème entier si son nom commence par le mot (« écran »), sauf si une rubrique
+      // le porte (« clavier » → rubrique Clavier) ; sinon la rubrique ou les libellés qui le contiennent
+      const groupeTrouve = f && groupes.some(g => sansAccent(g.nom).includes(f));
+      const themeEntier = f && !groupeTrouve && sansAccent(c.nom).startsWith(f);
+      let visibles = themeEntier ? groupes : groupes
+        .map(g => ({ nom: g.nom, options: !f || sansAccent(g.nom).includes(f) ? g.options : g.options.filter(o => sansAccent(o).includes(f)) }))
+        .filter(g => g.options.length);
+      if (f && !visibles.length && sansAccent(c.nom).includes(f)) visibles = groupes;
+      if (f && !visibles.length) return '';
+      const ouverte = f ? true : ui.catOuverte === c.id;
+      const ko = sel.length > 0;
+      return `<section class="cat${ko ? ' ko' : ''}${ouverte ? ' ouverte' : ''}" data-cat="${c.id}">
+        <button type="button" class="cat-btn" data-ouvrir="${c.id}" aria-expanded="${ouverte}">
+          <span class="cat-ico">${ICONES[c.icone] || ICONES.uc}</span>
+          <span class="cat-t"><span class="cat-nom">${esc(c.nom)}</span>
+            <span class="cat-res">${ko ? esc(sel.join(' · ')) : 'Aucun problème'}</span></span>
+          <span class="cat-nb">${ko ? sel.length : 'OK'}</span>
+          <span class="chev">${CHEVRON}</span>
+        </button>
+        ${ouverte ? `<div class="cat-corps">${visibles.map(g => `
+          <div class="sous">${g.nom ? `<h5>${esc(g.nom)}</h5>` : ''}
+            <div class="chips">${g.options.map(o => `<button type="button" class="chip${c.options.includes(o) ? '' : ' hors'}" data-val="${esc(o)}" aria-pressed="${sel.includes(o)}">${esc(o)}</button>`).join('')}</div>
+          </div>`).join('')}</div>` : ''}
+      </section>`;
+    }).join('');
+    return html || `<p class="rech-vide">Aucun libellé ne correspond à « ${esc(ui.rechPb)} ». Décrivez le problème dans l'observation ci-dessous.</p>`;
   }
-  const etatCategorie = sel => sel.length ? `${sel.length} problème${sel.length > 1 ? 's' : ''}` : 'OK';
+
+  function rendreCategories(focus) {
+    const box = $('#cats');
+    if (!box) return;
+    box.innerHTML = htmlCategories(salle(ui.salle).pcs[ui.sel] || pcVide());
+    if (focus) {
+      const sel = focus.val !== undefined
+        ? $$(`.cat[data-cat="${focus.cat}"] .chip`, box).find(b => b.dataset.val === focus.val)
+        : $(`.cat[data-cat="${focus.cat}"] .cat-btn`, box);
+      sel?.focus({ preventScroll: true });
+    }
+  }
 
   function piedPoste(p) {
     const ok = p && p.signale && aProbleme(p)
@@ -464,7 +545,11 @@
         </div>
       </div>
       <div class="insp-body">
-        ${CATS.map(c => blocCategorie(c, p)).join('')}
+        <label class="rech">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+          <input type="search" id="rechPb" value="${esc(ui.rechPb)}" placeholder="Chercher (souris, réseau, licence…)" aria-label="Chercher un problème" autocomplete="off">
+        </label>
+        <div id="cats" class="cats">${htmlCategories(p)}</div>
         <label class="field"><span>Observation</span>
           <textarea id="inspObs" rows="3" placeholder="Précisions utiles au technicien…">${esc(p.obs)}</textarea></label>
         ${registreConfigure() ? `<div id="histoDistant" data-cle="${id}|${n}"></div>` : blocHistorique(p.historique)}
@@ -569,14 +654,11 @@
     choisir(l[i < 0 ? 0 : (i + sens + l.length) % l.length]);
   }
 
-  function basculer(cat, val, chip) {
+  function basculer(cat, val) {
     const p = poste(ui.salle, ui.sel, true), arr = p.pb[cat], i = arr.indexOf(val);
     if (i >= 0) arr.splice(i, 1); else arr.push(val);
     p.modifie = maintenant();
-    chip.setAttribute('aria-pressed', String(i < 0));
-    const etat = chip.closest('.cat').querySelector('.etat');
-    etat.textContent = etatCategorie(arr);
-    etat.classList.toggle('ko', arr.length > 0);
+    rendreCategories({ cat, val });
     nettoyer(ui.salle, ui.sel);
     noter('modif', ui.salle, ui.sel);
     sauver();
@@ -1117,10 +1199,11 @@
       }
       const p = salle(id).pcs[n];
       if (p && p.serveur === d.maj) continue;
-      const signature = x => JSON.stringify([CATS.map(c => x.pb?.[c.id] || []), x.obs || '', x.modifie || null, x.signale || null]);
-      if (p && signature(p) === signature(d)) { p.serveur = d.maj; continue; }   // écho de nos propres actions
+      const pbDistant = rangerPb(d.pb);
+      const signature = (pb, x) => JSON.stringify([CATS.map(c => pb[c.id]), x.obs || '', x.modifie || null, x.signale || null]);
+      if (p && signature(p.pb, p) === signature(pbDistant, d)) { p.serveur = d.maj; continue; }   // écho de nos propres actions
       const P = p || pcVide();
-      CATS.forEach(c => { P.pb[c.id] = Array.isArray(d.pb?.[c.id]) ? d.pb[c.id].map(String) : []; });
+      P.pb = pbDistant;
       P.obs = String(d.obs || '');
       P.modifie = d.modifie || null;
       P.signale = d.signale || null;
@@ -1286,7 +1369,19 @@
 
   $('#inspector').addEventListener('click', e => {
     const chip = e.target.closest('.chip');
-    if (chip) return basculer(chip.closest('.cat').dataset.cat, chip.dataset.val, chip);
+    if (chip) return basculer(chip.closest('.cat').dataset.cat, chip.dataset.val);
+    const theme = e.target.closest('[data-ouvrir]');
+    if (theme) {
+      const id = theme.dataset.ouvrir;
+      if (ui.rechPb) {   // pendant une recherche, cliquer un thème l'ouvre seul et efface la recherche
+        ui.rechPb = '';
+        $('#rechPb').value = '';
+        ui.catOuverte = id;
+      } else ui.catOuverte = ui.catOuverte === id ? null : id;
+      rendreCategories({ cat: id });
+      if (ui.catOuverte === id) $(`.cat[data-cat="${id}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      return;
+    }
     const a = e.target.closest('[data-act]');
     if (a) {
       const act = a.dataset.act;
@@ -1303,9 +1398,18 @@
   $('#inspector').addEventListener('keydown', e => {
     const li = e.target.closest('.pb-salle li');
     if (li && e.key === 'Enter') choisir(li.dataset.n);
-  });
+    if (e.target.id === 'rechPb' && e.key === 'Escape' && e.target.value) {   // Échap vide d'abord la recherche
+      e.stopPropagation();
+      e.target.value = '';
+      ui.rechPb = '';
+      rendreCategories();
+    }
+  }, true);
   $('#inspector').addEventListener('input', e => {
-    if (e.target.id === 'inspObs') {
+    if (e.target.id === 'rechPb') {
+      ui.rechPb = e.target.value;
+      rendreCategories();
+    } else if (e.target.id === 'inspObs') {
       const p = poste(ui.salle, ui.sel, true);
       p.obs = e.target.value;
       p.modifie = maintenant();
