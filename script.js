@@ -1,4 +1,4 @@
-/* Suivi du matériel informatique — V 2.7
+/* Suivi du matériel informatique — V 2.8
  * Plans des salles, fiche par poste, rapport au service réseau.
  * Les données restent dans le navigateur (localStorage). */
 (() => {
@@ -239,7 +239,7 @@
     const avecRegistre = registreConfigure();
     const base = { portes: conf?.portes || [], mobilier: conf?.mobilier || [] };
     if (loc && (!avecRegistre || loc.enAttente)) return { ...base, contour: loc.contour || part?.contour || conf?.contour, postes: loc.postes, local: true, partage: false };
-    if (avecRegistre && part && (part.contour || conf?.contour)) return { ...base, contour: part.contour || conf.contour, postes: part.postes, local: false, partage: true, maj: part.maj };
+    if (avecRegistre && part && (part.contour || conf?.contour)) return { ...base, contour: part.contour || conf.contour, postes: part.postes, local: false, partage: true, maj: part.maj, par: part.par };
     if (conf) return { ...base, contour: conf.contour, postes: conf.postes, local: false, partage: false };
     return null;
   }
@@ -389,7 +389,7 @@
     const meta = [`${b.total} postes`];
     if (!lay) meta.push('plan non relevé');
     else if (lay.local) meta.push(registreConfigure() ? 'plan ajusté, pas encore partagé' : 'plan ajusté sur cet ordinateur');
-    else if (lay.partage && lay.maj) meta.push(`plan ajusté le ${fmtJour(lay.maj)}`);
+    else if (lay.partage && lay.maj) meta.push(`plan ajusté le ${fmtJour(lay.maj)}${lay.par ? ' par ' + lay.par : ''}`);
     meta.push(R.controle ? `contrôlée ${fmtRel(R.controle.date)}${R.controle.par ? ' par ' + R.controle.par : ''}` : 'aucun contrôle enregistré');
     $('#roomMeta').textContent = meta.join(' · ');
     $('#roomStats').innerHTML =
@@ -729,8 +729,10 @@
     if (registreConfigure()) chargerHistorique(id, '');
   }
 
-  // Avec le registre, seul le responsable ajuste les plans : un poste déplacé par erreur le serait pour tous
-  const peutAjuster = () => !registreConfigure() || donnees.sync.role === 'responsable';
+  // Avec le registre, le responsable et le service réseau réagencent les plans (un poste déplacé par erreur le serait
+  // pour tous, les collègues ne le peuvent pas). Le service réseau suppose un script Google de niveau 4.
+  const peutAjuster = () => !registreConfigure() || donnees.sync.role === 'responsable'
+    || (donnees.sync.role === 'technicien' && donnees.sync.api >= 4);
 
   function inspecteurEdition(box) {
     const lay = plan(ui.salle), p = ui.sel && lay?.postes[ui.sel];
@@ -745,7 +747,7 @@
             <li>Glissez un poste pour le déplacer ; les flèches du clavier l'avancent pas à pas (Maj : plus vite).</li>
             <li>« Pivoter » le tourne d'un quart de tour, « Retirer du plan » le range dans les postes non placés.</li>
             ${registreConfigure()
-              ? `<li>Quand vous cliquez sur « Terminer », le plan est <strong>enregistré dans le registre</strong> : tous vos collègues le voient aussitôt. Eux ne peuvent pas le modifier.</li>`
+              ? `<li>Quand vous cliquez sur « Terminer », le plan est <strong>enregistré dans le registre</strong> : tous vos collègues le voient aussitôt. Seuls le responsable et le service réseau peuvent le modifier. « Annuler » abandonne ce que vous avez changé.</li>`
               : `<li>Le plan ajusté est gardé <strong>sur cet ordinateur</strong>. Pour que tout le monde le voie : « Copier la configuration », puis remplacer le bloc de la salle dans <code>salles.js</code>.</li>`}
           </ol>
         </section>
@@ -856,12 +858,25 @@
   function commencerEdition() {
     if (ui.vue !== 'plan') return;
     ui.edition = true;
+    ui.avantEdition = { id: ui.salle, plan: JSON.stringify(salle(ui.salle).plan) };   // pour « Annuler »
     if (!CFG.salles[ui.salle].plan) rendreLocal(ui.salle);
     rendreSalle();
+  }
+  // Abandonne les déplacements faits depuis l'ouverture (rien n'est envoyé) ; demande confirmation s'il y en a
+  function annulerEdition() {
+    const av = ui.avantEdition, id = ui.salle;
+    if (!ui.edition || !av || av.id !== id) return terminerEdition();
+    if (JSON.stringify(salle(id).plan) !== av.plan && !confirm(`Abandonner les modifications du plan de la salle ${id} ?`)) return;
+    salle(id).plan = JSON.parse(av.plan);
+    ui.edition = false; ui.sel = null; ui.avantEdition = null;
+    sauver();
+    rendreSalle();
+    toast('Modifications du plan abandonnées.');
   }
   function terminerEdition(rendre = true) {
     const id = ui.salle;
     ui.edition = false;
+    ui.avantEdition = null;
     const R = salle(id), conf = CFG.salles[id].plan;
     if (registreConfigure()) {
       if (R.plan) {
@@ -904,6 +919,7 @@
   function actionEdition(a) {
     const id = ui.salle, lay = plan(id);
     if (a === 'terminer') return terminerEdition();
+    if (a === 'annuler') return annulerEdition();
     if (a === 'copier') {
       copier(texteConfig(id)).then(ok => toast(ok
         ? (registreConfigure() ? 'Configuration copiée (simple copie de secours : le plan est déjà partagé par le registre).' : 'Configuration copiée : collez-la dans salles.js à la place du bloc de la salle.')
@@ -1362,7 +1378,7 @@
   // En cas d'échec (hors ligne, script Google pas à jour) le plan reste en attente sur cet ordinateur.
   const planEnVol = new Set();
   async function pousserPlan(id, supprimer = false, muet = false) {
-    if (!peutEnvoyer() || donnees.sync.role !== 'responsable' || planEnVol.has(id)) return false;
+    if (!peutEnvoyer() || !peutAjuster() || planEnVol.has(id)) return false;
     const R = salle(id);
     const envoye = supprimer ? null : (R.plan && { contour: R.plan.contour, postes: JSON.parse(JSON.stringify(R.plan.postes)) });
     if (!supprimer && !envoye) return true;
@@ -1376,9 +1392,8 @@
           if (R.plan) R.plan.refuse = true;
           dire('Le registre a refusé ce plan (position invalide) : il reste sur cet ordinateur.');
         } else if (r.erreur === 'droits') {
-          donnees.sync.role = 'equipe';
-          majRole();
-          dire('Seul le code responsable peut modifier les plans.');
+          if (R.plan) R.plan.refuse = true;   // pas de nouvel essai tant que le profil ou le script ne change pas
+          dire("Votre profil ne peut pas modifier les plans (ou le script Google n'est pas à jour) : le plan reste sur cet ordinateur.");
         } else erreurRegistre(r.erreur);
         return false;
       }
@@ -1406,7 +1421,7 @@
     }
   }
   async function poussesPlansEnAttente() {
-    if (donnees.sync.role !== 'responsable') return;
+    if (!peutAjuster()) return;
     for (const id of SALLES) {
       const p = salle(id).plan;
       if (p && p.enAttente && !p.refuse && !(ui.edition && id === ui.salle)) await pousserPlan(id, false, true);
@@ -1417,7 +1432,7 @@
     for (const id of SALLES) {
       const R = salle(id);
       if (!R.plan || R.plan.enAttente) continue;
-      if (donnees.sync.role === 'responsable' && !donnees.plans[id]) R.plan.enAttente = true;
+      if (peutAjuster() && !donnees.plans[id]) R.plan.enAttente = true;
       else R.plan = null;
     }
   }
@@ -1459,6 +1474,9 @@
     const roleAvant = donnees.sync.role, apiAvant = donnees.sync.api;
     donnees.sync.api = Math.max(0, Number(r.api) || 0);
     donnees.sync.role = r.role === 'responsable' || r.role === 'technicien' ? r.role : 'equipe';
+    if (roleAvant !== donnees.sync.role || apiAvant !== donnees.sync.api) {   // nouveau profil ou script : les plans refusés sont retentés
+      SALLES.forEach(id => { if (salle(id).plan) delete salle(id).plan.refuse; });
+    }
     donnees.sync.feuille = donnees.sync.role === 'responsable' ? String(r.feuille || '') : '';
     if (r.messagesInfo && typeof r.messagesInfo.n === 'number') {   // pour le responsable : nombre de messages au concepteur
       donnees.sync.msgN = r.messagesInfo.n;
@@ -1509,7 +1527,7 @@
     if ((roleAvant !== donnees.sync.role || apiAvant !== donnees.sync.api) && ui.sel && !ui.edition && !document.activeElement?.matches('#inspector textarea, #inspector input')) rendreInspecteur();   // la fiche change selon le profil et le script
     if (donnees.file.some(envoyable) && !statut.envoi) planifierEnvoi(300);   // un script à jour libère les messages restés en attente
     if (changes.size) rendreApresSync(changes);
-    if (donnees.sync.role === 'responsable' && SALLES.some(id => salle(id).plan?.enAttente)) setTimeout(poussesPlansEnAttente, 400);
+    if (peutAjuster() && SALLES.some(id => salle(id).plan?.enAttente)) setTimeout(poussesPlansEnAttente, 400);
   }
 
   function rendreApresSync(changes) {
@@ -1758,7 +1776,7 @@
     if (e.key === 'Escape') {
       if (!$('#menuList').hidden) return fermerMenu();
       if (ui.sel) { choisir(null); return; }
-      if (ui.edition) terminerEdition();
+      if (ui.edition) annulerEdition();
       return;
     }
     if (e.target.matches?.('input, textarea, select') || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -1843,6 +1861,7 @@
     $('[data-menu="boite"]').hidden = !(reg && r === 'responsable');
     majBadgeMessages();
     majSauvegarde();
+    rendreEntete();   // le bouton « Ajuster le plan » dépend du profil
   }
   function majBadgeMessages() {
     const nouveaux = donnees.sync.role === 'responsable' ? Math.max(0, donnees.sync.msgN - donnees.sync.msgVu) : 0;

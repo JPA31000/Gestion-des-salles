@@ -215,6 +215,7 @@ code { font-family: Consolas, "Cascadia Mono", monospace; font-size: .92em; back
 .desk:focus-visible .halo { opacity: .9; stroke: var(--focus); }
 .desk.dim { opacity: .28; }
 .editing .desk { cursor: grab; }
+.editing #plan, .editing .desk { touch-action: none; }   /* au doigt, glisser un poste ne fait pas défiler la page */
 .editing .desk.dragging { cursor: grabbing; }
 .editing .plan-svg .floor { fill: var(--surface-2); }
 .editing .stage { outline: 2px dashed var(--brand); outline-offset: -1px; }
@@ -489,7 +490,6 @@ textarea.obs-salle { min-height: 84px; }
   .room-tabs { padding: 6px 16px 0; }
   .workspace { padding: 14px 16px 90px; }
   .room-actions { margin-left: 0; width: 100%; }
-  #btnAjuster { display: none; }
   .layout { grid-template-columns: 1fr; }
   #plan { max-height: none; min-height: 0; }
   .inspector { position: static; max-height: none; }
