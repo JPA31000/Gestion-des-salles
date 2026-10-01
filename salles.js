@@ -18,6 +18,13 @@ window.CONFIG_SALLES = {
   destinataire: 'reseauinfovitry@gmail.com',
   signature: "L'équipe GCCE",
 
+  /* Registre commun (Google Sheets) : adresse de l'application Web Apps Script
+     (Déployer > Gérer les déploiements > URL se terminant par /exec).
+     Laisser vide pour un usage sans registre (données gardées dans chaque navigateur). */
+  registre: {
+    url: 'https://script.google.com/macros/s/AKfycbxi61deRjn9UEA7mKIF66veD77TgqgbvsUBVV4zYhvJhPu63uuNht8u60BfdiQdqf15/exec'
+  },
+
   categories: [
     { id: 'pc', nom: 'Unité centrale', court: 'UC', options: [
       'HS', "Ne s'allume pas", 'Pas de connexion réseau', 'Très lent', 'Fige / se bloque',

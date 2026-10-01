@@ -18,7 +18,7 @@
       </div>
     </div>
     <div class="topbar-actions">
-      <span id="saveState" class="save-state" aria-live="polite"></span>
+      <button id="saveState" class="save-state" type="button" aria-live="polite"></button>
       <button id="btnRapport" class="btn btn-primary" type="button">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4z M4 7l8 6 8-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
         Rapport<span id="badgeRapport" class="badge" hidden></span>
@@ -28,6 +28,7 @@
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="19" cy="12" r="2" fill="currentColor"/></svg>
         </button>
         <div id="menuList" class="menu-list" role="menu" hidden>
+          <button role="menuitem" data-menu="registre" hidden>Registre commun (nom, code d'équipe)…</button>
           <button role="menuitem" data-menu="fiche">Imprimer la fiche de la salle</button>
           <button role="menuitem" data-menu="csv">Exporter en tableur (CSV)</button>
           <hr>
@@ -108,7 +109,7 @@
     <form method="dialog" class="dialog-inner">
       <header class="dialog-head">
         <h2 id="rapportTitre">Rapport au service réseau</h2>
-        <button class="btn btn-icon" value="cancel" aria-label="Fermer">&times;</button>
+        <button type="button" class="btn btn-icon" data-fermer aria-label="Fermer">&times;</button>
       </header>
       <div class="dialog-body rapport-grid">
         <div class="rapport-options">
@@ -148,7 +149,7 @@
     <form method="dialog" class="dialog-inner">
       <header class="dialog-head">
         <h2 id="aideTitre">Mode d'emploi</h2>
-        <button class="btn btn-icon" value="cancel" aria-label="Fermer">&times;</button>
+        <button type="button" class="btn btn-icon" data-fermer aria-label="Fermer">&times;</button>
       </header>
       <div class="dialog-body aide">
         <ol>
@@ -158,9 +159,33 @@
           <li><strong>« Rapport »</strong> prépare le message pour le service réseau (Gmail, messagerie, copie ou impression). Les postes envoyés passent en orange : « signalé, en attente ».</li>
           <li>Quand le poste est réparé, ouvrez-le et cliquez <strong>« Réparé, remettre en service »</strong>. La réparation reste dans l'historique du poste.</li>
         </ol>
-        <p class="muted small">Les données sont enregistrées dans ce navigateur, sur cet ordinateur. Pour les transporter ou les garder : menu ⋯ → « Sauvegarder les données ». « Ajuster le plan » permet de corriger la place d'un poste ; « Copier la configuration » donne le texte à recopier dans <code>salles.js</code> pour que tout le monde voie le plan corrigé.</p>
+        <p class="small"><strong>Registre commun.</strong> Chaque action est inscrite avec votre nom dans le registre de l'équipe : tout le monde voit le même état des postes, et l'historique de chaque poste est conservé. Sans réseau, l'application continue de fonctionner ; les actions partent au retour de la connexion.</p>
+        <p class="muted small">Une copie des données est aussi gardée dans ce navigateur. Pour les transporter ou les garder : menu ⋯ → « Sauvegarder les données ». « Ajuster le plan » permet de corriger la place d'un poste ; « Copier la configuration » donne le texte à recopier dans <code>salles.js</code> pour que tout le monde voie le plan corrigé.</p>
       </div>
       <footer class="dialog-foot"><button class="btn btn-primary" value="ok">Compris</button></footer>
+    </form>
+  </dialog>
+
+  <!-- Registre commun -->
+  <dialog id="dlgRegistre" class="dialog" aria-labelledby="registreTitre">
+    <form method="dialog" class="dialog-inner">
+      <header class="dialog-head">
+        <h2 id="registreTitre">Registre commun</h2>
+        <button type="button" class="btn btn-icon" data-fermer aria-label="Fermer">&times;</button>
+      </header>
+      <div class="dialog-body">
+        <p id="registreMsg" class="small"></p>
+        <label class="field"><span>Votre nom</span>
+          <input type="text" id="regNom" required autocomplete="name" placeholder="ex. M. Dupont"></label>
+        <label class="field"><span>Code d'équipe</span>
+          <input type="text" id="regCode" required autocomplete="off" spellcheck="false" placeholder="donné par le responsable de l'application"></label>
+        <p id="registreEtat" class="small muted"></p>
+      </div>
+      <footer class="dialog-foot">
+        <a id="lienFeuille" class="btn" target="_blank" rel="noopener" hidden>Ouvrir le registre</a>
+        <button type="button" class="btn" id="btnSync">Synchroniser maintenant</button>
+        <button class="btn btn-primary" value="ok">Enregistrer</button>
+      </footer>
     </form>
   </dialog>
 

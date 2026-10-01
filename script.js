@@ -49,15 +49,24 @@
   }
 
   // ---------- Données ----------
-  const pcVide = () => ({ pb: Object.fromEntries(CATS.map(c => [c.id, []])), obs: '', modifie: null, signale: null, historique: [] });
-  const salleVide = () => ({ pcs: {}, obs: '', obsModifie: null, obsSignale: null, controle: null, historique: [], plan: null });
-  const donneesVides = () => ({ version: 4, savedAt: null, reglages: { nom: '' }, salles: Object.fromEntries(SALLES.map(s => [s, salleVide()])) });
+  // « serveur » : repère de la dernière version reçue du registre commun
+  const pcVide = () => ({ pb: Object.fromEntries(CATS.map(c => [c.id, []])), obs: '', modifie: null, signale: null, historique: [], serveur: null });
+  const salleVide = () => ({ pcs: {}, obs: '', obsModifie: null, obsSignale: null, controle: null, historique: [], plan: null, serveur: null });
+  const donneesVides = () => ({
+    version: 4, savedAt: null, reglages: { nom: '', code: '', appareil: '' },
+    salles: Object.fromEntries(SALLES.map(s => [s, salleVide()])),
+    file: [], sync: { dernier: null, feuille: '', repris: false }
+  });
 
   function normaliser(src) {
     const out = donneesVides();
     if (!src || typeof src !== 'object') return out;
     out.savedAt = src.savedAt || null;
     out.reglages.nom = String(src.reglages?.nom || '');
+    out.reglages.code = String(src.reglages?.code || '');
+    out.reglages.appareil = String(src.reglages?.appareil || '');
+    out.file = Array.isArray(src.file) ? src.file.filter(e => e && e.id) : [];
+    out.sync = { dernier: src.sync?.dernier || null, feuille: String(src.sync?.feuille || ''), repris: !!src.sync?.repris };
     for (const [id, s] of Object.entries(src.salles || {})) {
       if (!CFG.salles[id] || !s) continue;
       const R = out.salles[id];
@@ -67,6 +76,7 @@
       R.controle = s.controle || null;
       R.historique = Array.isArray(s.historique) ? s.historique.slice(-50) : [];
       R.plan = s.plan && s.plan.postes ? s.plan : null;
+      R.serveur = s.serveur || null;
       for (const [n, p] of Object.entries(s.pcs || {})) {
         const P = pcVide();
         for (const c of CATS) P.pb[c.id] = Array.isArray(p?.pb?.[c.id]) ? p.pb[c.id].map(String) : [];
@@ -74,6 +84,7 @@
         P.modifie = p?.modifie || null;
         P.signale = p?.signale || null;
         P.historique = Array.isArray(p?.historique) ? p.historique.slice(-30) : [];
+        P.serveur = p?.serveur || null;
         R.pcs[n] = P;
       }
     }
@@ -117,7 +128,12 @@
   }
 
   let donnees = charger();
+  if (!donnees.reglages.appareil) donnees.reglages.appareil = 'A' + Math.random().toString(36).slice(2, 8).toUpperCase();
   let erreurSauvegarde = false;
+  // Registre commun : état de la liaison, événements en cours d'envoi, historiques déjà chargés
+  const statut = { erreur: null, envoi: false };
+  const enVol = new Set();
+  const cacheHisto = new Map();
 
   function sauver() {
     donnees.savedAt = maintenant();
@@ -254,6 +270,20 @@
   // ---------- Affichage ----------
   function majSauvegarde() {
     const e = $('#saveState');
+    if (registreConfigure() && !erreurSauvegarde) {
+      const attente = donnees.file.length, pl = attente > 1 ? 's' : '';
+      let txt, err = false, alerte = false;
+      if (!donnees.reglages.code || statut.erreur === 'code') { txt = 'Code d\'équipe à saisir'; err = true; }
+      else if (statut.erreur === 'non_configure') { txt = 'Registre pas encore activé'; err = true; }
+      else if (statut.erreur) { txt = attente ? `Hors ligne · ${attente} action${pl} en attente` : 'Registre injoignable'; alerte = true; }
+      else if (statut.envoi || attente) txt = 'Envoi au registre…';
+      else txt = donnees.sync.dernier ? `Registre commun à jour · ${fmtHeure(donnees.sync.dernier)}` : 'Connexion au registre…';
+      e.classList.toggle('erreur', err);
+      e.classList.toggle('alerte', alerte);
+      e.textContent = txt;
+      e.title = 'Registre commun : cliquer pour le détail';
+      return;
+    }
     e.classList.toggle('erreur', erreurSauvegarde);
     e.textContent = erreurSauvegarde ? 'Sauvegarde impossible dans ce navigateur'
       : donnees.savedAt ? `Enregistré ${fmtRel(donnees.savedAt)}` : 'Aucune modification';
@@ -412,9 +442,9 @@
     return ok + `<button type="button" class="btn" data-act="suiv">Poste suivant ›</button>`;
   }
 
-  function blocHistorique(h, titre = 'Historique') {
+  function blocHistorique(h, titre = 'Historique', max = 8) {
     if (!h || !h.length) return '';
-    return `<div class="histo"><h4>${titre}</h4><ol>${h.slice().sort((a, b) => a.t < b.t ? 1 : -1).slice(0, 8).map(e =>
+    return `<div class="histo"><h4>${titre}</h4><ol>${h.slice().sort((a, b) => a.t < b.t ? 1 : -1).slice(0, max).map(e =>
       `<li class="${esc(e.type)}"><div>${esc(e.quoi || LIB_HISTO[e.type] || e.type)}${e.par ? ' — ' + esc(e.par) : ''}</div>
        <div class="d">${fmtDT(e.t)}${e.txt ? ' · ' + esc(e.txt) : ''}</div></li>`).join('')}</ol></div>`;
   }
@@ -435,9 +465,10 @@
         ${CATS.map(c => blocCategorie(c, p)).join('')}
         <label class="field"><span>Observation</span>
           <textarea id="inspObs" rows="3" placeholder="Précisions utiles au technicien…">${esc(p.obs)}</textarea></label>
-        ${blocHistorique(p.historique)}
+        ${registreConfigure() ? `<div id="histoDistant" data-cle="${id}|${n}"></div>` : blocHistorique(p.historique)}
       </div>
       <div class="insp-foot" id="inspFoot">${piedPoste(salle(id).pcs[n])}</div>`;
+    if (registreConfigure()) chargerHistorique(id, n);
   }
 
   function historiqueSalle(id) {
@@ -467,8 +498,9 @@
           <button type="button" class="btn btn-ok btn-block" data-act="controle">✓ Salle contrôlée</button>
           <p class="controle-info">${R.controle ? `Dernier contrôle : ${fmtDT(R.controle.date)}${R.controle.par ? ' par ' + esc(R.controle.par) : ''}` : 'Aucun contrôle enregistré.'}</p>
         </section>
-        ${blocHistorique(historiqueSalle(id), 'Derniers événements')}
+        ${registreConfigure() ? `<div id="histoDistant" data-cle="${id}|"></div>` : blocHistorique(historiqueSalle(id), 'Derniers événements')}
       </div>`;
+    if (registreConfigure()) chargerHistorique(id, '');
   }
 
   function inspecteurEdition(box) {
@@ -544,6 +576,7 @@
     etat.textContent = etatCategorie(arr);
     etat.classList.toggle('ko', arr.length > 0);
     nettoyer(ui.salle, ui.sel);
+    noter('modif', ui.salle, ui.sel);
     sauver();
     apresChangementPoste();
   }
@@ -552,27 +585,33 @@
     const id = ui.salle, n = ui.sel, R = salle(id), p = R.pcs[n];
     if (!p) return;
     const avant = JSON.stringify(p);
-    if (p.signale && aProbleme(p)) {
-      p.historique.push({ t: maintenant(), type: 'repare', txt: resumeCourt(p).join(' · '), par: nom() });
+    const repare = !!(p.signale && aProbleme(p)), detail = resumeCourt(p).join(' · ');
+    if (repare) {
+      p.historique.push({ t: maintenant(), type: 'repare', txt: detail, par: nom() });
       p.historique = p.historique.slice(-30);
     }
     CATS.forEach(c => { p.pb[c.id] = []; });
     p.obs = ''; p.signale = null; p.modifie = maintenant();
     nettoyer(id, n);
+    noter(repare ? 'repare' : 'modif', id, n, repare ? detail : `Tout fonctionne (était : ${detail})`);
     sauver();
     rendreInspecteur();
     apresChangementPoste();
     toast(`Poste ${n} : tout fonctionne.`, 'Annuler', () => {
-      R.pcs[n] = JSON.parse(avant); sauver(); rendreTout();
+      R.pcs[n] = JSON.parse(avant);
+      noter('annulation', id, n);
+      sauver(); rendreTout();
     });
   }
 
   function controler() {
     const id = ui.salle, R = salle(id), b = bilan(id), t = maintenant();
     const enPanne = b.new + b.sent;
+    const txt = enPanne ? `${enPanne} poste${enPanne > 1 ? 's' : ''} en panne` : 'tout fonctionne';
     R.controle = { date: t, par: nom() };
-    R.historique.push({ t, type: 'controle', par: nom(), txt: enPanne ? `${enPanne} poste${enPanne > 1 ? 's' : ''} en panne` : 'tout fonctionne' });
+    R.historique.push({ t, type: 'controle', par: nom(), txt });
     R.historique = R.historique.slice(-50);
+    noter('controle', id, 'SALLE', txt);
     sauver();
     rendreSalle();
     toast(`Contrôle de la salle ${id} enregistré.`);
@@ -728,7 +767,7 @@
     const blocs = collecter();
     if (!blocs.length) return;
     const texte = $('#rapportTexte').value, sujet = sujetRapport(blocs), to = CFG.destinataire;
-    let msg = '';
+    let msg = '', reussi = true;
     if (mode === 'gmail') {
       const url = corps => `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
       let lien = url(texte);
@@ -736,7 +775,8 @@
         const copie = copier(texte);
         lien = url('Le rapport a été copié : collez-le ici (Ctrl+V).\n');
         window.open(lien, '_blank', 'noopener');
-        msg = (await copie) ? 'Rapport long : il a été copié, collez-le dans Gmail (Ctrl+V).' : 'Rapport trop long pour Gmail : utilisez « Copier le texte ».';
+        reussi = await copie;
+        msg = reussi ? 'Rapport long : il a été copié, collez-le dans Gmail (Ctrl+V).' : 'Rapport trop long pour Gmail : utilisez « Copier le texte ».';
       } else {
         window.open(lien, '_blank', 'noopener');
         msg = 'Gmail s\'ouvre avec le rapport pré-rempli.';
@@ -744,19 +784,26 @@
     } else if (mode === 'mailto') {
       const lien = corps => `mailto:${to}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
       if (lien(texte).length > 1900) {
-        const ok = await copier(texte);
-        location.href = lien('Le rapport a été copié : collez-le ici (Ctrl+V).\n');
-        msg = ok ? 'Rapport copié : collez-le dans le message (Ctrl+V).' : 'Rapport trop long : utilisez « Copier le texte ».';
+        reussi = await copier(texte);
+        if (reussi) location.href = lien('Le rapport a été copié : collez-le ici (Ctrl+V).\n');
+        msg = reussi ?'Rapport copié : collez-le dans le message (Ctrl+V).' : 'Rapport trop long : utilisez « Copier le texte ».';
       } else {
         location.href = lien(texte);
         msg = 'La messagerie de l\'ordinateur s\'ouvre avec le rapport.';
       }
     } else if (mode === 'copier') {
-      msg = (await copier(texte)) ? `Rapport copié (destinataire : ${to}).` : 'Copie impossible dans ce navigateur.';
+      reussi = await copier(texte);
+      msg = reussi ? `Rapport copié (destinataire : ${to}).` : 'Copie impossible dans ce navigateur : sélectionnez le texte et faites Ctrl+C.';
     } else if (mode === 'imprimer') {
       $('#dlgRapport').close();
       imprimer(`<h1>${esc(sujet)}</h1><div class="meta">À : ${esc(to)}</div><pre>${esc(texte)}</pre>`);
       msg = 'Rapport envoyé à l\'impression.';
+    }
+    if (!reussi) {   // rien n'est parti : les postes ne sont pas marqués, la fenêtre reste ouverte
+      if (!$('#dlgRapport').open) return toast(msg);
+      $('#rapportAlerte').textContent = msg;
+      $('#rapportAlerte').hidden = false;
+      return;
     }
     if ($('#dlgRapport').open) $('#dlgRapport').close();
     if ($('#optMarquer').checked) marquerSignales(blocs, msg);
@@ -774,14 +821,22 @@
         p.historique.push({ t, type: 'signale', txt: resumeCourt(p).join(' · '), par: nom() });
         p.historique = p.historique.slice(-30);
         p.signale = t;
+        noter('signale', b.id, n, resumeCourt(p).join(' · '), t);
         nb++;
       }
-      if (b.obs) R.obsSignale = t;
+      if (b.obs) {
+        R.obsSignale = t;
+        noter('signale', b.id, 'SALLE', `Observation de salle : ${b.obs}`, t);
+      }
     }
     sauver();
     rendreTout();
     toast(`${msg} ${nb ? `${nb} poste${nb > 1 ? 's' : ''} marqué${nb > 1 ? 's' : ''} « signalé ».` : ''}`.trim(), 'Annuler', () => {
-      for (const id of Object.keys(avant)) donnees.salles[id] = normaliser({ salles: { [id]: JSON.parse(avant[id]) } }).salles[id];
+      for (const b of blocs) {
+        donnees.salles[b.id] = normaliser({ salles: { [b.id]: JSON.parse(avant[b.id]) } }).salles[b.id];
+        b.pcs.forEach(({ n }) => noter('annulation', b.id, n, 'Signalement annulé'));
+        if (b.obs) noter('annulation', b.id, 'SALLE', 'Signalement annulé');
+      }
       sauver(); rendreTout();
     });
   }
@@ -838,7 +893,8 @@
   }
 
   function sauvegarderFichier() {
-    telecharger(JSON.stringify({ application: 'Suivi matériel informatique', ...donnees }, null, 1),
+    // Le code d'équipe ne part pas dans le fichier : il pourrait circuler
+    telecharger(JSON.stringify({ application: 'Suivi matériel informatique', ...donnees, reglages: { ...donnees.reglages, code: '' } }, null, 1),
       `suivi-salles-sauvegarde-${dateFichier()}.json`, 'application/json');
     toast('Sauvegarde téléchargée.');
   }
@@ -853,23 +909,29 @@
       else if (src && Object.values(src).some(v => Array.isArray(v?.items))) lu = depuisV3(src);
       if (!lu) return toast('Ce fichier n\'est pas une sauvegarde de l\'application.');
       if (!confirm(`Remplacer les données de ce navigateur par celles du fichier « ${fichier.name} » ?`)) return;
-      if (!lu.reglages.nom) lu.reglages.nom = donnees.reglages.nom;
+      lu.reglages = { ...donnees.reglages, nom: lu.reglages.nom || donnees.reglages.nom };
+      lu.file = donnees.file;
+      lu.sync = { ...donnees.sync };
       donnees = lu;
       ui.sel = null; ui.edition = false;
       sauver(); rendreTout();
-      toast('Sauvegarde restaurée.');
+      toast(registreConfigure() ? 'Sauvegarde restaurée. Les postes déjà inscrits au registre commun gardent leur état du registre.' : 'Sauvegarde restaurée.');
     };
     lecteur.readAsText(fichier);
   }
 
   function effacerTout() {
-    if (!confirm('Effacer toutes les données de suivi enregistrées dans ce navigateur ?\n\nConseil : faites d\'abord « Sauvegarder les données ».')) return;
+    if (!confirm(registreConfigure()
+      ? 'Effacer les données gardées dans ce navigateur ?\n\nLe registre commun n\'est pas touché : l\'état des postes sera rechargé depuis le registre.'
+      : 'Effacer toutes les données de suivi enregistrées dans ce navigateur ?\n\nConseil : faites d\'abord « Sauvegarder les données ».')) return;
     const avant = JSON.stringify(donnees);
-    const n = donnees.reglages.nom;
+    const garde = { reglages: donnees.reglages, file: donnees.file };
     donnees = donneesVides();
-    donnees.reglages.nom = n;
+    Object.assign(donnees, garde);
+    donnees.sync.repris = true;   // rien à reprendre : on repart du registre
     ui.sel = null; ui.edition = false;
     sauver(); rendreTout();
+    rafraichir();
     toast('Données effacées.', 'Annuler', () => { donnees = normaliser(JSON.parse(avant)); sauver(); rendreTout(); }, 8000);
   }
 
@@ -895,6 +957,233 @@
     t.hidden = false;
     clearTimeout(minuteur);
     minuteur = setTimeout(() => { t.hidden = true; }, duree);
+  }
+
+  // ---------- Registre commun (Google Sheets) ----------
+  // Chaque action part dans une file d'attente gardée dans le navigateur, puis est envoyée
+  // au registre. Le registre renvoie l'état de tous les postes, qui remplace l'état local
+  // des postes sans action en attente. Sans réseau, l'application continue en local.
+  function registreConfigure() { return !!(CFG.registre && CFG.registre.url); }
+  function peutEnvoyer() { return registreConfigure() && !!donnees.reglages.code && statut.erreur !== 'code'; }
+  const idEvenement = () => `${donnees.reglages.appareil}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+  function instantane(id, n) {
+    if (n === 'SALLE') {
+      const R = salle(id);
+      return {
+        obs: R.obs, obsModifie: R.obsModifie, obsSignale: R.obsSignale, controle: R.controle, libelle: ETATS[etatObsSalle(R)],
+        resume: R.controle ? `Contrôlée le ${fmtDT(R.controle.date)}${R.controle.par ? ' par ' + R.controle.par : ''}` : ''
+      };
+    }
+    const p = salle(id).pcs[n] || pcVide();
+    return JSON.parse(JSON.stringify({ pb: p.pb, obs: p.obs, modifie: p.modifie, signale: p.signale, libelle: ETATS[etatPoste(p)], resume: resume(p).join(' ; ') }));
+  }
+
+  function noter(action, id, n, detail, t = maintenant()) {
+    if (!registreConfigure() || !n) return;
+    const etat = instantane(id, n);
+    if (detail === undefined) {
+      detail = n === 'SALLE'
+        ? (etat.obs.trim() ? `Observation de salle : ${etat.obs.trim()}` : 'Observation de salle effacée')
+        : [etat.resume, etat.obs.trim() ? `Obs. : ${etat.obs.trim()}` : ''].filter(Boolean).join(' ; ') || 'Plus aucun problème';
+    }
+    // Plusieurs cases cochées d'affilée sur le même poste : une seule ligne au registre
+    const der = donnees.file[donnees.file.length - 1];
+    const fusion = (action === 'modif' || action === 'obs_salle') && der && der.action === action
+      && der.salle === id && der.poste === n && !enVol.has(der.id);
+    if (fusion) Object.assign(der, { t, detail, etat, par: nom() });
+    else donnees.file.push({ id: idEvenement(), t, salle: id, poste: n, action, detail, par: nom(), appareil: donnees.reglages.appareil, etat });
+    if (donnees.file.length > 2000) donnees.file = donnees.file.slice(-2000);
+    planifierEnvoi(action === 'modif' || action === 'obs_salle' ? 4000 : 600);
+    majSauvegarde();
+  }
+
+  let minuteurEnvoi = null, echeanceEnvoi = 0;
+  function planifierEnvoi(delai) {
+    const echeance = Date.now() + delai;
+    if (minuteurEnvoi && echeanceEnvoi <= echeance) return;
+    clearTimeout(minuteurEnvoi);
+    echeanceEnvoi = echeance;
+    minuteurEnvoi = setTimeout(() => { minuteurEnvoi = null; envoyerFile(); }, delai);
+  }
+
+  async function appel(corps) {
+    const ctrl = new AbortController(), minuterie = setTimeout(() => ctrl.abort(), 25000);
+    try {
+      // text/plain : requête « simple », sans pré-vérification CORS (que Google ne gère pas)
+      const r = await fetch(CFG.registre.url, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ ...corps, code: donnees.reglages.code }), signal: ctrl.signal, cache: 'no-store'
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return await r.json();
+    } finally {
+      clearTimeout(minuterie);
+    }
+  }
+
+  function erreurRegistre(code) {
+    const avant = statut.erreur;
+    statut.erreur = code || 'serveur';
+    if (code === 'code' && avant !== 'code') ouvrirRegistre('Le code d\'équipe a été refusé par le registre. Vérifiez-le auprès du responsable de l\'application.');
+  }
+
+  async function envoyerFile() {
+    if (!peutEnvoyer() || statut.envoi || !donnees.file.length) return;
+    statut.envoi = true;
+    majSauvegarde();
+    const lot = donnees.file.slice(0, 100);
+    lot.forEach(e => enVol.add(e.id));
+    try {
+      const r = await appel({ action: 'envoyer', evenements: lot });
+      if (r.ok) {
+        const ids = new Set(lot.map(e => e.id));
+        donnees.file = donnees.file.filter(e => !ids.has(e.id));
+        statut.erreur = null;
+        cacheHisto.clear();
+        appliquerEtat(r);
+        const z = $('#histoDistant');
+        if (z) chargerHistorique(...z.dataset.cle.split('|'));   // seul l'historique se met à jour
+      } else erreurRegistre(r.erreur);
+    } catch (e) {
+      statut.erreur = 'reseau';
+    } finally {
+      lot.forEach(e => enVol.delete(e.id));
+      statut.envoi = false;
+      sauver();
+      if (donnees.file.length && !statut.erreur) planifierEnvoi(300);
+    }
+  }
+
+  async function rafraichir() {
+    if (!peutEnvoyer() || document.hidden) return;
+    if (donnees.file.length) return envoyerFile();   // l'envoi rapporte aussi l'état à jour
+    try {
+      const r = await appel({ action: 'etat' });
+      if (r.ok) { statut.erreur = null; appliquerEtat(r); } else erreurRegistre(r.erreur);
+    } catch (e) {
+      statut.erreur = 'reseau';
+    }
+    sauver();
+  }
+
+  // Au tout premier contact, les relevés faits avant le registre y sont versés
+  function reprendre(distant) {
+    donnees.sync.repris = true;
+    const connus = new Map(distant.map(x => [x.salle + '|' + x.poste, x.d || {}]));
+    for (const id of SALLES) {
+      const R = salle(id);
+      for (const [n, p] of Object.entries(R.pcs)) {
+        if (!aProbleme(p)) continue;
+        const d = connus.get(id + '|' + n);
+        if (d && (d.t || '') >= (p.modifie || '')) continue;
+        noter('reprise', id, n, undefined, p.modifie || maintenant());
+      }
+      const d = connus.get(id + '|SALLE');
+      if (R.obs.trim() && (!d || (d.t || '') < (R.obsModifie || ''))) noter('obs_salle', id, 'SALLE', undefined, R.obsModifie || maintenant());
+    }
+  }
+
+  function appliquerEtat(r) {
+    if (r.feuille) donnees.sync.feuille = r.feuille;
+    donnees.sync.dernier = maintenant();
+    const distant = Array.isArray(r.etat) ? r.etat : [];
+    if (!donnees.sync.repris) reprendre(distant);
+    const attente = new Set(donnees.file.map(e => e.salle + '|' + e.poste));
+    const changes = new Set();
+    for (const { salle: id, poste: n, d } of distant) {
+      const cle = id + '|' + n;
+      if (!donnees.salles[id] || !d || !n || attente.has(cle)) continue;
+      if (n === 'SALLE') {
+        const R = salle(id);
+        if (R.serveur === d.maj) continue;
+        const sig = x => JSON.stringify([x.obs || '', x.obsModifie || null, x.obsSignale || null, x.controle || null]);
+        if (sig(R) === sig(d)) { R.serveur = d.maj; continue; }
+        Object.assign(R, { obs: String(d.obs || ''), obsModifie: d.obsModifie || null, obsSignale: d.obsSignale || null, controle: d.controle || null, serveur: d.maj });
+        changes.add(cle);
+        continue;
+      }
+      const p = salle(id).pcs[n];
+      if (p && p.serveur === d.maj) continue;
+      const signature = x => JSON.stringify([CATS.map(c => x.pb?.[c.id] || []), x.obs || '', x.modifie || null, x.signale || null]);
+      if (p && signature(p) === signature(d)) { p.serveur = d.maj; continue; }   // écho de nos propres actions
+      const P = p || pcVide();
+      CATS.forEach(c => { P.pb[c.id] = Array.isArray(d.pb?.[c.id]) ? d.pb[c.id].map(String) : []; });
+      P.obs = String(d.obs || '');
+      P.modifie = d.modifie || null;
+      P.signale = d.signale || null;
+      P.serveur = d.maj;
+      if (!p) {
+        if (!aProbleme(P) && !P.signale) continue;
+        salle(id).pcs[n] = P;
+      }
+      changes.add(cle);
+    }
+    if (changes.size) rendreApresSync(changes);
+  }
+
+  function rendreApresSync(changes) {
+    rendreOnglets();
+    majBadge();
+    rendreEntete();
+    if (ui.vue === 'liste') rendreListe(); else majPostes();
+    rendreNonPlaces();
+    const saisie = document.activeElement?.matches('#inspector textarea, #inspector input');
+    const concerne = [...changes].some(k => ui.sel ? k === `${ui.salle}|${ui.sel}` : k.startsWith(ui.salle + '|'));
+    if (concerne && !saisie && !ui.edition) rendreInspecteur();
+  }
+
+  async function chargerHistorique(id, n) {
+    const cle = `${id}|${n}`;
+    const zone = () => { const z = $('#histoDistant'); return z && z.dataset.cle === cle ? z : null; };
+    const titre = n ? 'Historique · registre commun' : 'Derniers événements · registre commun';
+    const message = txt => { const z = zone(); if (z) z.innerHTML = `<div class="histo"><h4>${titre}</h4><p class="vide">${txt}</p></div>`; };
+    const afficher = evs => {
+      const z = zone();
+      if (!z) return;
+      if (!evs.length) return message('Aucun événement enregistré pour le moment.');
+      z.innerHTML = blocHistorique(evs.map(e => ({
+        t: e.t, type: e.action, par: e.par, txt: e.detail,
+        quoi: n ? e.libelle : `${e.poste === 'Salle' ? 'Salle' : 'Poste ' + e.poste.replace(/^.*P/, '')} : ${e.libelle.toLowerCase()}`
+      })), titre, n ? 20 : 12);
+    };
+    const c = cacheHisto.get(cle);
+    if (c && Date.now() - c.t < 60000) return afficher(c.evs);
+    if (!peutEnvoyer()) return message('Saisissez le code d\'équipe pour voir l\'historique commun.');
+    message('Chargement du registre…');
+    try {
+      const r = await appel({ action: 'historique', salle: id, poste: n, max: n ? 20 : 12 });
+      if (!r.ok) { erreurRegistre(r.erreur); majSauvegarde(); return message('Registre indisponible.'); }
+      cacheHisto.set(cle, { t: Date.now(), evs: r.evenements || [] });
+      afficher(r.evenements || []);
+    } catch (e) {
+      message('Registre injoignable pour le moment.');
+    }
+  }
+
+  // Page fermée avec des actions en attente : dernier envoi sans attendre la réponse.
+  // Elles restent dans la file ; le registre ignore les doublons au prochain envoi.
+  function balise() {
+    if (!peutEnvoyer() || !donnees.file.length || !navigator.sendBeacon) return;
+    const corps = JSON.stringify({ action: 'envoyer', code: donnees.reglages.code, evenements: donnees.file.slice(0, 100) });
+    try { navigator.sendBeacon(CFG.registre.url, new Blob([corps], { type: 'text/plain;charset=utf-8' })); } catch (e) { /* tant pis */ }
+  }
+
+  function ouvrirRegistre(message) {
+    const d = $('#dlgRegistre');
+    $('#regNom').value = donnees.reglages.nom;
+    $('#regCode').value = donnees.reglages.code;
+    $('#registreMsg').textContent = message || 'Chaque action (panne relevée, signalement, réparation, contrôle) est inscrite dans le registre commun de l\'équipe, avec votre nom.';
+    $('#registreMsg').classList.toggle('alerte', !!message);
+    const att = donnees.file.length;
+    $('#registreEtat').textContent = [
+      donnees.sync.dernier ? `Dernier échange avec le registre : ${fmtDT(donnees.sync.dernier)}.` : 'Pas encore de contact avec le registre.',
+      att ? `${att} action${att > 1 ? 's' : ''} en attente d'envoi.` : ''
+    ].join(' ');
+    const lien = $('#lienFeuille');
+    lien.hidden = !donnees.sync.feuille;
+    if (donnees.sync.feuille) lien.href = donnees.sync.feuille;
+    if (!d.open) d.showModal();
   }
 
   // ---------- Événements ----------
@@ -1004,12 +1293,14 @@
       p.obs = e.target.value;
       p.modifie = maintenant();
       nettoyer(ui.salle, ui.sel);
+      noter('modif', ui.salle, ui.sel);
       sauver();
       apresChangementPoste();
     } else if (e.target.id === 'obsSalle') {
       const R = salle(ui.salle);
       R.obs = e.target.value;
       R.obsModifie = maintenant();
+      noter('obs_salle', ui.salle, 'SALLE');
       sauver();
       const os = etatObsSalle(R);
       $('#obsSallePill').innerHTML = os !== 'ok' ? `<span class="pill ${os}">${ETATS[os]}</span>` : '';
@@ -1058,7 +1349,8 @@
     fermerMenu();
     ({
       fiche: imprimerFiche, csv: exporterCsv, sauver: sauvegarderFichier,
-      restaurer: () => $('#fileImport').click(), aide: () => $('#dlgAide').showModal(), effacer: effacerTout
+      restaurer: () => $('#fileImport').click(), aide: () => $('#dlgAide').showModal(), effacer: effacerTout,
+      registre: () => ouvrirRegistre()
     })[b.dataset.menu]();
   });
   $('#fileImport').addEventListener('change', e => {
@@ -1080,6 +1372,28 @@
     if (b) envoyer(b.dataset.envoi);
   });
   $$('dialog').forEach(d => d.addEventListener('click', e => { if (e.target === d) d.close(); }));
+  $$('[data-fermer]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close('cancel')));
+
+  // Registre commun : nom et code d'équipe
+  $('#saveState').addEventListener('click', () => { if (registreConfigure()) ouvrirRegistre(); });
+  $('#dlgRegistre form').addEventListener('submit', e => {
+    if (e.submitter && e.submitter.value !== 'ok') return;
+    donnees.reglages.nom = $('#regNom').value.trim();
+    donnees.reglages.code = $('#regCode').value.trim();
+    statut.erreur = null;
+    sauver();
+    rafraichir();
+  });
+  $('#btnSync').addEventListener('click', async () => {
+    donnees.reglages.nom = $('#regNom').value.trim();
+    donnees.reglages.code = $('#regCode').value.trim();
+    statut.erreur = null;
+    sauver();
+    $('#registreEtat').textContent = 'Échange avec le registre…';
+    await rafraichir();
+    ouvrirRegistre(statut.erreur === 'code' ? 'Le code d\'équipe a été refusé par le registre.'
+      : statut.erreur ? 'Le registre ne répond pas : vérifiez la connexion. Les actions restent en attente et partiront plus tard.' : undefined);
+  });
 
   // Autre onglet du navigateur ouvert sur l'application
   window.addEventListener('storage', e => {
@@ -1103,4 +1417,15 @@
     setTimeout(() => toast('Les relevés de la version précédente ont été repris.'), 300);
   }
   rendreTout();
+
+  if (registreConfigure()) {
+    $('[data-menu="registre"]').hidden = false;
+    if (!donnees.reglages.code || !nom()) setTimeout(() => ouvrirRegistre(), 400);
+    else rafraichir();
+    setInterval(rafraichir, 60000);
+    setInterval(() => { if (donnees.file.length && !statut.envoi) envoyerFile(); }, 30000);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) balise(); else rafraichir(); });
+    window.addEventListener('pagehide', balise);
+    window.addEventListener('online', () => { if (statut.erreur === 'reseau') statut.erreur = null; rafraichir(); });
+  }
 })();

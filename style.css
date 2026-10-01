@@ -112,10 +112,14 @@ code { font-family: Consolas, "Cascadia Mono", monospace; font-size: .92em; back
 .brand-text h1 { font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
 .brand-text p { margin: 0; font-size: 13px; color: var(--muted); }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
-.save-state { font-size: 12.5px; color: var(--muted); margin-right: 6px; white-space: nowrap; }
-.save-state.erreur { color: var(--new-text); font-weight: 600; }
+.save-state { font: inherit; font-size: 12.5px; color: var(--muted); margin-right: 6px; white-space: nowrap; background: none; border: 0; padding: 4px 6px; border-radius: 6px; cursor: default; }
+.save-state:hover { background: var(--surface-2); }
+.save-state.erreur { color: var(--new-text); font-weight: 600; cursor: pointer; }
+.save-state.alerte { color: var(--sent-text); font-weight: 600; }
 .save-state::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--brand); margin-right: 6px; vertical-align: 1px; }
 .save-state.erreur::before { background: var(--new-line); }
+.save-state.alerte::before { background: var(--sent-line); }
+#registreMsg.alerte { padding: 8px 12px; }
 
 .menu { position: relative; }
 .menu-list {
@@ -308,6 +312,8 @@ table.list { width: 100%; border-collapse: collapse; font-size: 14px; }
 .histo li.signale::before { border-color: var(--sent-line); background: var(--sent-fill); }
 .histo li.repare::before { border-color: var(--brand); background: var(--brand-soft); }
 .histo li.controle::before { border-color: var(--brand); background: var(--brand-soft); }
+.histo li.modif::before, .histo li.reprise::before { border-color: var(--new-line); background: var(--new-fill); }
+.histo li.obs_salle::before { border-color: var(--obs); }
 .histo .d { color: var(--muted); font-size: 12px; }
 .histo .vide { font-size: 13px; color: var(--muted); }
 
