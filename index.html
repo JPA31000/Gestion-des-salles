@@ -1,89 +1,174 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Suivi Matériel Informatique</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>Suivi Matériel Informatique</title>
+  <link rel="icon" href="logo.png">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>Suivi Matériel Informatique</h1>
-            <div class="header-controls">
-                <div class="room-selector">
-                    <label for="roomSelect">Choisir une salle:</label>
-                    <select id="roomSelect"></select>
-                </div>
-                <div class="logo-container">
-                    <img src="logo.png" alt="Logo Lycée Urbain Vitry" class="header-logo">
-                    <small class="version-text"><i>V 1.2 - jpA</i></small>
-                </div>
-            </div>
-        </header>
-
-        <main>
-            <div id="instructions">
-                <i>Ce formulaire enregistre automatiquement les modifications dans la mémoire de votre navigateur (sauvegarde locale). Pour signaler les problèmes, vous devez générer manuellement un rapport. L'affichage des PC peut être filtré ci-dessous.</i>
-            </div>
-            <h2 id="roomTitle"></h2>
-            <span id="lastSaved" class="last-saved-below-title"></span>
-
-            <div id="pc-filter-container">
-                <h4>Filtrer l'affichage des PC</h4>
-                <div id="pc-checkboxes" class="checkbox-grid">
-                    </div>
-                <button id="toggleAllPcsBtn" class="btn btn-secondary">Tout Désélectionner</button>
-            </div>
-
-            <div class="table-container">
-                <table id="inventoryTable">
-                    <thead>
-                        <tr>
-                            <th>N°PC</th>
-                            <th>État PC</th>
-                            <th>Écran 1</th>
-                            <th>Écran 2</th>
-                            <th>Pb Logiciel</th>
-                            <th>Pb Périphérique</th>
-                            <th>Observations</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="inventoryBody">
-                        </tbody>
-                </table>
-            </div>
-
-            <section class="observations-container">
-                <div class="observations-header">
-                    <h3>Observations Générales (pour la salle)</h3>
-                    <button id="resetObservationBtn" class="btn btn-secondary" aria-label="Réinitialiser l'observation générale">Réinitialiser</button>
-                </div>
-                <textarea id="generalObservation" rows="4" placeholder="Inscrire ici les observations générales pour l'ensemble de la salle..."></textarea>
-            </section>
-        </main>
-
-        <footer>
-            <button id="reportButton" class="btn btn-primary">Générer le rapport</button>
-            <div id="feedbackStatus"></div>
-        </footer>
+  <header class="topbar">
+    <div class="brand">
+      <img src="logo.png" alt="Lycée Urbain Vitry" class="brand-logo">
+      <div class="brand-text">
+        <h1>Suivi du matériel informatique</h1>
+        <p>Bâtiment 13 · salles informatiques</p>
+      </div>
     </div>
-
-    <div id="reportModal" class="modal">
-        <div class="modal-content">
-            <header class="modal-header">
-                <h2>Rapport de Problème</h2>
-                <button class="close-button" aria-label="Fermer">&times;</button>
-            </header>
-            <div class="modal-body">
-                <pre id="reportContent"></pre>
-            </div>
-            <footer class="modal-footer">
-                <button id="sendEmailButton" class="btn btn-primary">Envoyer par Gmail</button> </footer>
+    <div class="topbar-actions">
+      <span id="saveState" class="save-state" aria-live="polite"></span>
+      <button id="btnRapport" class="btn btn-primary" type="button">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4z M4 7l8 6 8-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        Rapport<span id="badgeRapport" class="badge" hidden></span>
+      </button>
+      <div class="menu">
+        <button id="btnMenu" class="btn btn-icon" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Plus d'actions">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="19" cy="12" r="2" fill="currentColor"/></svg>
+        </button>
+        <div id="menuList" class="menu-list" role="menu" hidden>
+          <button role="menuitem" data-menu="fiche">Imprimer la fiche de la salle</button>
+          <button role="menuitem" data-menu="csv">Exporter en tableur (CSV)</button>
+          <hr>
+          <button role="menuitem" data-menu="sauver">Sauvegarder les données (fichier)</button>
+          <button role="menuitem" data-menu="restaurer">Restaurer une sauvegarde…</button>
+          <hr>
+          <button role="menuitem" data-menu="aide">Mode d'emploi</button>
+          <button role="menuitem" data-menu="effacer" class="danger">Effacer toutes les données…</button>
         </div>
+      </div>
     </div>
+  </header>
 
-    <script src="script.js"></script>
+  <nav id="roomTabs" class="room-tabs" role="tablist" aria-label="Salles"></nav>
+
+  <main class="workspace">
+    <section class="room-head">
+      <div class="room-id">
+        <h2 id="roomTitle"></h2>
+        <p id="roomMeta" class="muted"></p>
+      </div>
+      <div id="roomStats" class="room-stats"></div>
+      <div class="room-actions">
+        <div class="seg" role="group" aria-label="Affichage">
+          <button type="button" data-view="plan" aria-pressed="true">Plan</button>
+          <button type="button" data-view="liste" aria-pressed="false">Liste</button>
+        </div>
+        <button id="btnAjuster" class="btn btn-ghost" type="button">Ajuster le plan</button>
+      </div>
+    </section>
+
+    <div class="layout">
+      <section class="stage">
+        <div id="editBar" class="edit-bar" hidden>
+          <strong>Ajustement du plan</strong>
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-sm" data-edit="pivoter">Pivoter</button>
+          <button type="button" class="btn btn-sm" data-edit="retirer">Retirer du plan</button>
+          <button type="button" class="btn btn-sm" data-edit="origine">Plan d'origine</button>
+          <button type="button" class="btn btn-sm" data-edit="copier">Copier la configuration</button>
+          <button type="button" class="btn btn-sm btn-primary" data-edit="terminer">Terminer</button>
+        </div>
+
+        <div id="planWrap" class="plan-wrap">
+          <svg id="plan" class="plan-svg" role="group" aria-label="Plan de la salle"></svg>
+          <div id="tiles" class="tiles" hidden></div>
+        </div>
+
+        <div id="listWrap" class="list-wrap" hidden>
+          <div id="listFilters" class="filters" role="group" aria-label="Filtrer"></div>
+          <table class="list">
+            <thead><tr><th>Poste</th><th>État</th><th>Problèmes</th><th>Observation</th><th>Modifié</th></tr></thead>
+            <tbody id="listBody"></tbody>
+          </table>
+        </div>
+
+        <div id="unplaced" class="unplaced" hidden></div>
+
+        <div class="legend" aria-hidden="true">
+          <span><i class="sw sw-ok"></i>Fonctionne</span>
+          <span><i class="sw sw-new"></i>À signaler</span>
+          <span><i class="sw sw-sent"></i>Signalé, en attente</span>
+          <span><i class="sw sw-obs"></i>Observation</span>
+        </div>
+      </section>
+
+      <aside id="inspector" class="inspector" aria-live="polite"></aside>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <span>V 2.0 · jpA</span>
+    <span>Les données restent dans ce navigateur. Pensez à « Sauvegarder les données » de temps en temps.</span>
+  </footer>
+
+  <!-- Rapport -->
+  <dialog id="dlgRapport" class="dialog dialog-wide" aria-labelledby="rapportTitre">
+    <form method="dialog" class="dialog-inner">
+      <header class="dialog-head">
+        <h2 id="rapportTitre">Rapport au service réseau</h2>
+        <button class="btn btn-icon" value="cancel" aria-label="Fermer">&times;</button>
+      </header>
+      <div class="dialog-body rapport-grid">
+        <div class="rapport-options">
+          <fieldset>
+            <legend>Salles</legend>
+            <label class="radio"><input type="radio" name="perimetre" value="salle" checked> <span id="optSalle">Cette salle</span></label>
+            <label class="radio"><input type="radio" name="perimetre" value="toutes"> <span id="optToutes">Toutes les salles</span></label>
+          </fieldset>
+          <fieldset>
+            <legend>Contenu</legend>
+            <label class="check"><input type="checkbox" id="optDeja"> Inclure les problèmes déjà signalés</label>
+          </fieldset>
+          <label class="field">
+            <span>Signé par</span>
+            <input type="text" id="optNom" placeholder="Votre nom" autocomplete="name">
+          </label>
+          <p class="muted small">À : <strong id="destinataire"></strong></p>
+          <label class="check"><input type="checkbox" id="optMarquer" checked> Marquer ces postes comme « signalés » après l'envoi</label>
+        </div>
+        <div class="rapport-preview">
+          <label for="rapportTexte" class="small muted">Aperçu (modifiable avant l'envoi)</label>
+          <textarea id="rapportTexte" spellcheck="true"></textarea>
+          <p id="rapportAlerte" class="alerte" hidden></p>
+        </div>
+      </div>
+      <footer class="dialog-foot">
+        <button type="button" class="btn" data-envoi="imprimer">Imprimer</button>
+        <button type="button" class="btn" data-envoi="copier">Copier le texte</button>
+        <button type="button" class="btn" data-envoi="mailto">Messagerie de l'ordinateur</button>
+        <button type="button" class="btn btn-primary" data-envoi="gmail">Ouvrir dans Gmail</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Mode d'emploi -->
+  <dialog id="dlgAide" class="dialog" aria-labelledby="aideTitre">
+    <form method="dialog" class="dialog-inner">
+      <header class="dialog-head">
+        <h2 id="aideTitre">Mode d'emploi</h2>
+        <button class="btn btn-icon" value="cancel" aria-label="Fermer">&times;</button>
+      </header>
+      <div class="dialog-body aide">
+        <ol>
+          <li><strong>Choisir la salle</strong> dans la barre des onglets. Le chiffre indique les postes en panne.</li>
+          <li><strong>Cliquer sur un poste</strong> du plan, puis cocher ce qui ne va pas. Plusieurs problèmes peuvent être cochés. Les flèches ← → passent au poste voisin.</li>
+          <li>Si tout fonctionne dans la salle, <strong>« Salle contrôlée »</strong> enregistre la date du contrôle.</li>
+          <li><strong>« Rapport »</strong> prépare le message pour le service réseau (Gmail, messagerie, copie ou impression). Les postes envoyés passent en orange : « signalé, en attente ».</li>
+          <li>Quand le poste est réparé, ouvrez-le et cliquez <strong>« Réparé, remettre en service »</strong>. La réparation reste dans l'historique du poste.</li>
+        </ol>
+        <p class="muted small">Les données sont enregistrées dans ce navigateur, sur cet ordinateur. Pour les transporter ou les garder : menu ⋯ → « Sauvegarder les données ». « Ajuster le plan » permet de corriger la place d'un poste ; « Copier la configuration » donne le texte à recopier dans <code>salles.js</code> pour que tout le monde voie le plan corrigé.</p>
+      </div>
+      <footer class="dialog-foot"><button class="btn btn-primary" value="ok">Compris</button></footer>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden><span id="toastMsg"></span><button id="toastAction" type="button" hidden></button></div>
+  <input type="file" id="fileImport" accept=".json,application/json" hidden>
+  <div id="printSheet" class="print-sheet"></div>
+
+  <script src="salles.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
