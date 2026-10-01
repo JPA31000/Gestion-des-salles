@@ -438,6 +438,11 @@ textarea.obs-salle { min-height: 84px; }
 .dialog-body { padding: 16px 18px; overflow-y: auto; }
 .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding: 12px 18px; border-top: 1px solid var(--line); background: var(--surface-2); border-radius: 0 0 14px 14px; }
 
+/* Au chargement, rien n'est visible avant la fenêtre d'identification (comme une application). Filet de sécurité :
+   si le script ne démarre pas, tout réapparaît au bout de 4 secondes. */
+html.demarrage body > *:not(dialog) { visibility: hidden; animation: reveler 0s 4s forwards; }
+@keyframes reveler { to { visibility: visible; } }
+
 /* Identification / registre commun : logo du lycée à gauche, formulaire à droite */
 .dialog-ident { width: min(780px, calc(100vw - 32px)); overflow: hidden; }
 .ident { flex-direction: row; }
@@ -457,9 +462,21 @@ textarea.obs-salle { min-height: 84px; }
 .ident-options { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; margin-top: 6px; }
 .ident-options .check { padding: 0; font-size: 13px; }
 #registreMsg:not(.alerte) { margin-top: 0; color: var(--ink-2); }
-/* À l'ouverture : seulement l'identification, et impossible de fermer la fenêtre sans s'identifier */
-.dialog-ident.debut #btnSync, .dialog-ident.debut #lienFeuille, .dialog-ident.debut #registreEtat, .dialog-ident.debut #registreScript { display: none; }
+/* Même fenêtre à l'ouverture et depuis le menu ; seul le menu ajoute l'état de la connexion (bloc replié) */
+.ident-details { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; }
+.ident-details summary { cursor: pointer; font-weight: 600; color: var(--muted); }
+.ident-details summary:hover { color: var(--ink-2); }
+.ident-details p { margin: 8px 0 0; }
+.ident-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.ident-actions .btn { text-decoration: none; }
+/* À l'ouverture : pas d'état de connexion, fond uni (l'application n'est pas visible derrière),
+   et impossible de fermer la fenêtre sans s'identifier */
+.dialog-ident.debut .ident-details { display: none; }
 .dialog-ident[data-obligatoire] [data-fermer] { display: none; }
+.dialog-ident[data-obligatoire]::backdrop { background: linear-gradient(160deg, #e3f4f3 0%, #f3f5f6 55%, #cfe9e7 100%); }
+@media (prefers-color-scheme: dark) {
+  .dialog-ident[data-obligatoire]::backdrop { background: linear-gradient(160deg, #123634 0%, #111518 60%, #0e2a28 100%); }
+}
 @media (max-width: 640px) {
   .ident { flex-direction: column; overflow-y: auto; }
   .ident-logo { flex: none; flex-direction: row; justify-content: flex-start; gap: 14px; padding: 14px 16px; text-align: left; border-right: 0; border-bottom: 1px solid var(--line); }

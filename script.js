@@ -1,4 +1,4 @@
-/* Suivi du matériel informatique — V 2.9
+/* Suivi du matériel informatique — V 2.10
  * Plans des salles, fiche par poste, rapport au service réseau.
  * Les données restent dans le navigateur (localStorage). */
 (() => {
@@ -1579,58 +1579,57 @@
     try { navigator.sendBeacon(CFG.registre.url, new Blob([corps], { type: 'text/plain;charset=utf-8' })); } catch (e) { /* tant pis */ }
   }
 
-  // Texte d'accueil de l'identification (nom déjà connu sur cet ordinateur, ou première fois)
-  const texteIdentification = connu => (connu ? `Bonjour ${nom()}. Confirmez que c'est bien vous pour commencer.` : 'Pour commencer, identifiez-vous.')
-    + " Votre nom est inscrit dans l'historique des postes (relevés, signalements, réparations).";
+  // Texte d'accueil de la fenêtre : à l'ouverture on demande de confirmer, depuis le menu on rappelle qui est identifié
+  function texteIdentification(debut, connu = !!nom()) {
+    const profil = { technicien: 'service réseau', responsable: 'responsable' }[donnees.sync.role];
+    const suite = " Votre nom est inscrit dans l'historique des postes (relevés, signalements, réparations).";
+    if (!connu) return 'Pour commencer, identifiez-vous.' + suite;
+    return debut
+      ? `Bonjour ${nom()}. Confirmez que c'est bien vous pour commencer.` + suite
+      : `Vous êtes identifié(e) : ${nom()}${profil ? ' (' + profil + ')' : ''}.` + suite;
+  }
 
-  // debut = true : l'identification affichée à l'ouverture de l'application. Elle ne se ferme pas tant que la personne
-  // ne s'est pas identifiée ; hors de ce cas (menu, refus du code), c'est la fenêtre de réglages du registre.
+  // La même fenêtre s'ouvre à l'ouverture de l'application (debut = true : fond uni, elle ne se ferme pas tant que la personne
+  // ne s'est pas identifiée) et depuis le menu (elle se ferme normalement et ajoute l'état de la connexion, dans un bloc replié).
   function ouvrirRegistre(message, debut = false) {
     const d = $('#dlgRegistre'), dejaOuverte = d.open;
     if (!dejaOuverte) {   // une fenêtre déjà ouverte garde ce que la personne est en train de saisir
       d.classList.toggle('debut', debut);
       d.toggleAttribute('data-obligatoire', debut);
-      $('#registreTitre').textContent = debut ? 'Identification' : 'Registre commun';
-      $('#regContinuer').textContent = debut ? 'Continuer' : 'Enregistrer';
       $('#regNom').value = donnees.reglages.nom;
       $('#regCode').value = donnees.reglages.code;
       $('#regCode').type = 'password';
       $('#regAfficher').checked = false;
-      $('#regAutre').hidden = !(debut && nom());
+      $('#regAutre').hidden = !nom();
     }
     const enDebut = d.classList.contains('debut');
-    $('#registreMsg').textContent = message || (enDebut
-      ? texteIdentification(!!nom())
-      : 'Chaque action (panne relevée, signalement, réparation, contrôle) est inscrite dans le registre commun de l\'équipe, avec votre nom.');
+    $('#registreMsg').textContent = message || texteIdentification(enDebut);
     $('#registreMsg').classList.toggle('alerte', !!message);
-    const att = donnees.file.length;
+    // État de la connexion (bloc replié, absent à l'ouverture)
+    const att = donnees.file.length, aJour = serveurAJour();
     $('#registreEtat').textContent = [
       donnees.sync.dernier ? `Dernier échange avec le registre : ${fmtDT(donnees.sync.dernier)}.` : 'Pas encore de contact avec le registre.',
-      att ? `${att} action${att > 1 ? 's' : ''} en attente d'envoi.` : ''
-    ].join(' ');
-    const lien = $('#lienFeuille');
-    const responsable = donnees.sync.role === 'responsable' && !!donnees.sync.feuille;
+      att ? `${att} action${att > 1 ? 's' : ''} en attente d'envoi.` : '',
+      { responsable: 'Connecté avec le code responsable.', technicien: 'Connecté avec le code du service réseau : vous pouvez enregistrer les réparations.' }[donnees.sync.role] || ''
+    ].filter(Boolean).join(' ');
+    const lien = $('#lienFeuille'), responsable = donnees.sync.role === 'responsable' && !!donnees.sync.feuille;
     lien.hidden = !responsable;
     if (responsable) lien.href = donnees.sync.feuille;
-    const profil = {
-      responsable: ' Connecté avec le code responsable.',
-      technicien: ' Connecté avec le code du service réseau : vous pouvez enregistrer les réparations.'
-    }[donnees.sync.role];
-    if (profil) $('#registreEtat').textContent += profil;
     // Le script Google est-il à jour ? (réparations du service réseau et messages au concepteur en dépendent)
     const sc = $('#registreScript');
     sc.hidden = !donnees.sync.dernier;
     if (donnees.sync.dernier) {
-      const aJour = serveurAJour();
       sc.className = aJour ? 'small muted' : 'small alerte';
       sc.textContent = aJour
         ? 'Script Google à jour : réparations du service réseau et messages au concepteur actifs.'
-        : 'Le script Google n\'est pas encore à jour : les réparations du service réseau et les messages au concepteur attendent sa mise à jour.';
+        : "Le script Google n'est pas encore à jour : les réparations du service réseau et les messages au concepteur attendent sa mise à jour.";
     }
+    // le bloc s'ouvre de lui-même quand il y a quelque chose à voir (connexion en panne, script à mettre à jour)
+    if (!enDebut && (statut.erreur || (donnees.sync.dernier && !aJour))) $('#regDetails').open = true;
     if (!dejaOuverte) {
       d.showModal();
       // le curseur va là où il y a quelque chose à faire : nom, puis code, puis « Continuer »
-      if (debut) ($('#regNom').value.trim() ? ($('#regCode').value.trim() ? $('#regContinuer') : $('#regCode')) : $('#regNom')).focus();
+      ($('#regNom').value.trim() ? ($('#regCode').value.trim() ? $('#regContinuer') : $('#regCode')) : $('#regNom')).focus();
     }
   }
 
@@ -1975,7 +1974,7 @@
     $('#regNom').value = '';
     $('#regCode').value = '';
     $('#regAutre').hidden = true;
-    $('#registreMsg').textContent = texteIdentification(false);
+    $('#registreMsg').textContent = texteIdentification(true, false);
     $('#regNom').focus();
   });
   $('#formAvis').addEventListener('submit', e => {
@@ -2029,4 +2028,5 @@
     window.addEventListener('pagehide', balise);
     window.addEventListener('online', () => { if (statut.erreur === 'reseau') statut.erreur = null; rafraichir(); });
   }
+  document.documentElement.classList.remove('demarrage');   // l'application peut s'afficher (derrière l'identification, s'il y en a une)
 })();

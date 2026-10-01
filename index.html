@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" class="demarrage">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,7 +16,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="logo/favicon-32.png">
   <link rel="apple-touch-icon" href="logo/apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2.10">
 </head>
 <body>
   <header class="topbar">
@@ -39,7 +39,7 @@
         </button>
         <div id="menuList" class="menu-list" role="menu" hidden>
           <button role="menuitem" data-menu="feuille" hidden>Ouvrir le registre (Google Sheets)</button>
-          <button role="menuitem" data-menu="registre" hidden>Registre commun (nom, code d'accès)…</button>
+          <button role="menuitem" data-menu="registre" hidden>Registre commun (identification)…</button>
           <button role="menuitem" data-menu="boite" hidden>Messages reçus<span id="boiteNb"></span></button>
           <button role="menuitem" data-menu="avis" hidden>Écrire au concepteur…</button>
           <button role="menuitem" data-menu="fiche">Imprimer la fiche de la salle</button>
@@ -115,7 +115,7 @@
   </main>
 
   <footer class="foot">
-    <span class="foot-id"><img src="logo.png" alt="Lycée Urbain Vitry" class="foot-logo"><span>V 2.9 · jpA</span></span>
+    <span class="foot-id"><img src="logo.png" alt="Lycée Urbain Vitry" class="foot-logo"><span>V 2.10 · jpA</span></span>
     <span>Les données restent dans ce navigateur. Pensez à « Sauvegarder les données » de temps en temps.</span>
   </footer>
 
@@ -196,7 +196,7 @@
       </aside>
       <div class="ident-main">
         <header class="dialog-head">
-          <h2 id="registreTitre">Registre commun</h2>
+          <h2 id="registreTitre">Registre commun · Identification</h2>
           <button type="button" class="btn btn-icon" data-fermer aria-label="Fermer">&times;</button>
         </header>
         <div class="dialog-body">
@@ -209,13 +209,19 @@
             <label class="check"><input type="checkbox" id="regAfficher"> Afficher le code</label>
             <button type="button" class="lien" id="regAutre" hidden>Ce n'est pas vous ? Changer d'utilisateur</button>
           </div>
-          <p id="registreEtat" class="small muted"></p>
-          <p id="registreScript" class="small" hidden></p>
+          <!-- Même fenêtre qu'à l'ouverture ; ce bloc n'apparaît que lorsqu'on l'ouvre depuis le menu -->
+          <details id="regDetails" class="ident-details">
+            <summary>État de la connexion au registre</summary>
+            <p id="registreEtat" class="small muted"></p>
+            <p id="registreScript" class="small" hidden></p>
+            <div class="ident-actions">
+              <button type="button" class="btn btn-sm" id="btnSync">Synchroniser maintenant</button>
+              <a id="lienFeuille" class="btn btn-sm" target="_blank" rel="noopener" hidden>Ouvrir le registre (Google Sheets)</a>
+            </div>
+          </details>
         </div>
         <footer class="dialog-foot">
-          <a id="lienFeuille" class="btn" target="_blank" rel="noopener" hidden>Ouvrir le registre</a>
-          <button type="button" class="btn" id="btnSync">Synchroniser maintenant</button>
-          <button class="btn btn-primary" id="regContinuer" value="ok">Enregistrer</button>
+          <button class="btn btn-primary" id="regContinuer" value="ok">Continuer</button>
         </footer>
       </div>
     </form>
@@ -267,7 +273,7 @@
   <input type="file" id="fileImport" accept=".json,application/json" hidden>
   <div id="printSheet" class="print-sheet"></div>
 
-  <script src="salles.js"></script>
-  <script src="script.js"></script>
+  <script src="salles.js?v=2.10"></script>
+  <script src="script.js?v=2.10"></script>
 </body>
 </html>
