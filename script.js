@@ -1,4 +1,4 @@
-/* Suivi du matériel informatique — V 2.5
+/* Suivi du matériel informatique — V 2.6
  * Plans des salles, fiche par poste, rapport au service réseau.
  * Les données restent dans le navigateur (localStorage). */
 (() => {
@@ -18,6 +18,9 @@
   const NS = 'http://www.w3.org/2000/svg';
   const ETATS = { ok: 'Fonctionne', new: 'À signaler', sent: 'Signalé' };
   const LIB_HISTO = { signale: 'Signalé au service réseau', repare: 'Remis en service', controle: 'Salle contrôlée' };
+  const LIB_ROLES = { equipe: 'Équipe', technicien: 'Service réseau', responsable: 'Responsable' };
+  const TYPES_AVIS = { idee: "Idée d'amélioration", anomalie: "Problème dans l'application", question: 'Question', autre: 'Autre' };
+  const DELAI_ANNULATION = 7000;   // une réparation n'est envoyée qu'après ce délai : on peut l'annuler d'ici là
 
   // Libellés de la V 1.2 devenus plus précis en V 2.0
   const RENOMMAGES = {
@@ -79,12 +82,15 @@
 
   // ---------- Données ----------
   // « serveur » : repère de la dernière version reçue du registre commun
-  const pcVide = () => ({ pb: Object.fromEntries(CATS.map(c => [c.id, []])), obs: '', modifie: null, signale: null, historique: [], serveur: null });
+  // « reseau » : dernier message du service réseau tant que le poste a un problème { txt, par, t }
+  const pcVide = () => ({ pb: Object.fromEntries(CATS.map(c => [c.id, []])), obs: '', modifie: null, signale: null, historique: [], serveur: null, reseau: null });
+  const reseauValide = r => r && typeof r.txt === 'string' && r.txt.trim()
+    ? { txt: r.txt.slice(0, 500), par: String(r.par || '').slice(0, 80), t: r.t ? String(r.t) : null } : null;
   const salleVide = () => ({ pcs: {}, obs: '', obsModifie: null, obsSignale: null, controle: null, historique: [], plan: null, serveur: null });
   const donneesVides = () => ({
     version: 4, savedAt: null, reglages: { nom: '', code: '', appareil: '' },
     salles: Object.fromEntries(SALLES.map(s => [s, salleVide()])),
-    file: [], sync: { dernier: null, feuille: '', role: '', repris: false },
+    file: [], sync: { dernier: null, feuille: '', role: '', repris: false, msgN: 0, msgVu: 0, api: 0 },
     plans: {}   // plans ajustés partagés par le registre : { salle: { postes, contour?, maj, par } }
   });
 
@@ -98,8 +104,11 @@
     out.file = Array.isArray(src.file) ? src.file.filter(e => e && e.id) : [];
     out.plans = plansValides(src.plans);
     // Le lien vers la feuille n'est gardé que pour le responsable
-    const role = src.sync?.role === 'responsable' ? 'responsable' : (src.sync?.role === 'equipe' ? 'equipe' : '');
-    out.sync = { dernier: src.sync?.dernier || null, feuille: role === 'responsable' ? String(src.sync?.feuille || '') : '', role, repris: !!src.sync?.repris };
+    const role = Object.keys(LIB_ROLES).includes(src.sync?.role) ? src.sync.role : '';
+    out.sync = {
+      dernier: src.sync?.dernier || null, feuille: role === 'responsable' ? String(src.sync?.feuille || '') : '', role, repris: !!src.sync?.repris,
+      msgN: Math.max(0, Number(src.sync?.msgN) || 0), msgVu: Math.max(0, Number(src.sync?.msgVu) || 0), api: Math.max(0, Number(src.sync?.api) || 0)
+    };
     for (const [id, s] of Object.entries(src.salles || {})) {
       if (!CFG.salles[id] || !s) continue;
       const R = out.salles[id];
@@ -118,6 +127,7 @@
         P.signale = p?.signale || null;
         P.historique = Array.isArray(p?.historique) ? p.historique.slice(-30) : [];
         P.serveur = p?.serveur || null;
+        P.reseau = reseauValide(p?.reseau);
         R.pcs[n] = P;
       }
     }
@@ -187,6 +197,7 @@
   // Retire un poste revenu à l'état neuf, pour garder des données légères
   function nettoyer(id, n) {
     const p = salle(id).pcs[n];
+    if (p && !aProbleme(p)) p.reseau = null;   // le message du service réseau ne survit pas à la dernière panne
     if (p && !aProbleme(p) && !p.signale && !p.historique.length) delete salle(id).pcs[n];
   }
 
@@ -296,6 +307,7 @@
       el('rect', { class: 'body', rx: 6 }, g);
       el('text', { class: 'num' }, g).textContent = n;
       el('circle', { class: 'obs', r: 6 }, g);
+      el('circle', { class: 'rep', r: 6 }, g);
       positionner(g, lay.postes[n]);
     }
   }
@@ -306,12 +318,14 @@
     const t = g.querySelector('text');
     t.setAttribute('x', x + w / 2); t.setAttribute('y', y + h / 2);
     t.setAttribute('font-size', borne(Math.min(w, h) * 0.46, 16, 34).toFixed(1));
-    const c = g.querySelector('circle');
-    c.setAttribute('cx', x + w - 8); c.setAttribute('cy', y + 8);
+    const [cObs, cRep] = g.querySelectorAll('circle');
+    cObs.setAttribute('cx', x + w - 8); cObs.setAttribute('cy', y + 8);
+    cRep.setAttribute('cx', x + 8); cRep.setAttribute('cy', y + 8);
   }
 
   // ---------- État de l'interface ----------
-  const ui = { salle: SALLES[0], sel: null, vue: 'plan', filtre: 'tous', edition: false, catOuverte: null, rechPb: '' };
+  // reps : réparations en cours de saisie par le service réseau, par poste { 'salle|poste': { coches, message } }
+  const ui = { salle: SALLES[0], sel: null, vue: 'plan', filtre: 'tous', edition: false, catOuverte: null, rechPb: '', reps: {} };
   try {
     const pr = JSON.parse(localStorage.getItem(CLE_PREFS) || '{}');
     if (SALLES.includes(pr.salle)) ui.salle = pr.salle;
@@ -328,13 +342,13 @@
   function majSauvegarde() {
     const e = $('#saveState');
     if (registreConfigure() && !erreurSauvegarde) {
-      const attente = donnees.file.length, pl = attente > 1 ? 's' : '';
+      const attente = donnees.file.filter(e => e.action !== 'avis' || serveurAJour()).length, pl = attente > 1 ? 's' : '';
       let txt, err = false, alerte = false;
-      if (!donnees.reglages.code || statut.erreur === 'code') { txt = 'Code d\'équipe à saisir'; err = true; }
+      if (!donnees.reglages.code || statut.erreur === 'code') { txt = 'Code d\'accès à saisir'; err = true; }
       else if (statut.erreur === 'non_configure') { txt = 'Registre pas encore activé'; err = true; }
       else if (statut.erreur) { txt = attente ? `Hors ligne · ${attente} action${pl} en attente` : 'Registre injoignable'; alerte = true; }
       else if (statut.envoi || attente) txt = 'Envoi au registre…';
-      else txt = donnees.sync.dernier ? `Registre commun à jour · ${fmtHeure(donnees.sync.dernier)}` : 'Connexion au registre…';
+      else txt = donnees.sync.dernier ? `Registre commun à jour · ${fmtHeure(donnees.sync.dernier)}${donnees.sync.role === 'technicien' ? ' · service réseau' : ''}` : 'Connexion au registre…';
       e.classList.toggle('erreur', err);
       e.classList.toggle('alerte', alerte);
       e.textContent = txt;
@@ -406,7 +420,7 @@
     if (!lay) {
       svg.toggleAttribute('hidden', true); tuiles.hidden = false;
       tuiles.innerHTML = `<p class="note">Le plan de cette salle n'a pas encore été relevé : les postes sont présentés dans l'ordre. « Ajuster le plan » permet de les placer.</p>` +
-        numeros(ui.salle).map(n => `<button type="button" class="tile" data-n="${n}">${n}<span class="obs-dot" hidden></span></button>`).join('');
+        numeros(ui.salle).map(n => `<button type="button" class="tile" data-n="${n}">${n}<span class="obs-dot" hidden></span><span class="rep-dot" hidden></span></button>`).join('');
     } else {
       svg.toggleAttribute('hidden', false); tuiles.hidden = true; tuiles.innerHTML = '';
       dessinerPlan(svg, lay);
@@ -421,15 +435,17 @@
       e.classList.remove('ok', 'new', 'sent');
       e.classList.add(st);
       e.classList.toggle('selected', avecSelection && n === ui.sel);
-      const obs = !!p?.obs.trim();
-      const lib = `Poste ${n} — ${ETATS[st]}` + (aProbleme(p) ? ' : ' + resumeCourt(p).join(' ; ') : '');
+      const obs = !!p?.obs.trim(), msgReseau = !!(p?.reseau && aProbleme(p));
+      const lib = `Poste ${n} — ${ETATS[st]}` + (aProbleme(p) ? ' : ' + resumeCourt(p).join(' ; ') : '') + (msgReseau ? ' · message du service réseau' : '');
       e.setAttribute('aria-label', lib);
       if (e.classList.contains('desk')) {
         e.querySelector('circle.obs').style.display = obs ? '' : 'none';
+        e.querySelector('circle.rep').style.display = msgReseau ? '' : 'none';
         e.querySelector('title').textContent = lib;
       } else {
-        const dot = e.querySelector('.obs-dot');
+        const dot = e.querySelector('.obs-dot'), dotRep = e.querySelector('.rep-dot');
         if (dot) dot.hidden = !obs;
+        if (dotRep) dotRep.hidden = !msgReseau;
         e.title = lib;
       }
     });
@@ -462,7 +478,7 @@
       return `<tr data-n="${n}" tabindex="0" class="${n === ui.sel ? 'selected' : ''}">
         <td class="num">${n}</td><td><span class="pill ${s}">${ETATS[s]}</span></td>
         <td><div class="pb-list">${pbs || '<span class="muted">—</span>'}</div></td>
-        <td class="obs">${esc(p?.obs || '')}</td><td class="date">${aProbleme(p) ? esc(fmtRel(p.modifie)) : ''}</td></tr>`;
+        <td class="obs">${esc(p?.obs || '')}${p?.reseau && aProbleme(p) ? `<div class="rm-ligne"><span class="role-tag">Réseau</span> ${esc(p.reseau.txt)}</div>` : ''}</td><td class="date">${aProbleme(p) ? esc(fmtRel(p.modifie)) : ''}</td></tr>`;
     }).join('') : `<tr class="empty"><td colspan="5">Aucun poste dans cette catégorie.</td></tr>`;
   }
 
@@ -544,17 +560,111 @@
     }
   }
 
+  // ---------- Service réseau : réparations panne par panne et message ----------
+  // Le service réseau (code technicien) et le responsable peuvent enregistrer une réparation ;
+  // les collègues voient le résultat : pannes restantes, message, historique.
+  function peutReparer() {
+    return registreConfigure() && statut.erreur !== 'code' && serveurAJour() && (donnees.sync.role === 'technicien' || donnees.sync.role === 'responsable');
+  }
+  const libRole = r => LIB_ROLES[r] || '';
+
+  // Pannes en cours d'un poste, une par libellé coché (plus l'observation libre, si elle existe)
+  function pannesDuPoste(p) {
+    const l = [];
+    if (!p) return l;
+    CATS.forEach(c => p.pb[c.id].forEach(label => l.push({ cat: c.id, theme: c.nom, court: c.court, label })));
+    if (p.obs.trim()) l.push({ cat: 'obs', theme: 'Observation', court: 'Obs.', label: p.obs.trim() });
+    return l;
+  }
+  // « Réparé · É1 : HS · Pér : Clavier HS » : l'abréviation du thème évite de confondre deux « HS »
+  const detailReparations = items => 'Réparé · ' + items.map(it => `${it.court} : ${it.label}`).join(' · ');
+  const cleItem = it => `${it.cat}|${it.label}`;
+  function brouillonRep() {
+    const cle = `${ui.salle}|${ui.sel}`;
+    if (!ui.reps[cle]) ui.reps[cle] = { coches: [], message: '' };
+    return ui.reps[cle];
+  }
+
+  // Message laissé par le service réseau : visible de tous, tant que le poste a un problème
+  function htmlMessageReseau(p) {
+    if (!p || !p.reseau || !aProbleme(p)) return '';
+    return `<div class="reseau-msg"><div class="rm-t"><span class="role-tag">Service réseau</span>${p.reseau.par ? ' ' + esc(p.reseau.par) : ''}${p.reseau.t ? ' · ' + esc(fmtRel(p.reseau.t)) : ''}</div>
+      <p>${esc(p.reseau.txt)}</p></div>`;
+  }
+
+  function htmlReparations(p) {
+    const pannes = pannesDuPoste(p), br = brouillonRep();
+    const liste = pannes.length
+      ? `<ul class="rep-liste">${pannes.map(it => `<li><label class="rep-item">
+          <input type="checkbox" data-rep="${esc(cleItem(it))}"${br.coches.includes(cleItem(it)) ? ' checked' : ''}>
+          <span class="rep-lib">${esc(it.label)}</span><span class="rep-th">${esc(it.theme)}</span></label></li>`).join('')}</ul>
+        <button type="button" class="lien" data-act="rep-tout">Tout cocher</button>`
+      : `<p class="rep-vide">Aucune panne signalée sur ce poste. Vous pouvez tout de même laisser un message (il restera dans l'historique).</p>`;
+    return `<h4>Service réseau · réparations</h4>
+      <p class="rep-info">${p && p.signale && aProbleme(p) ? `Signalé au service réseau ${esc(fmtRel(p.signale))}. ` : ''}Cochez ce qui est réparé.</p>
+      ${liste}
+      <label class="field"><span>Message (visible par tous)</span>
+        <textarea id="repMsg" rows="2" maxlength="500" placeholder="ex. souris remplacée, clavier commandé…">${esc(br.message)}</textarea></label>
+      <button type="button" class="btn btn-ok btn-block" id="repBtn" data-act="rep-valider" disabled>✓ Enregistrer</button>`;
+  }
+  // Texte et état du bouton d'enregistrement selon ce qui est coché et écrit
+  function majBoutonRep() {
+    const b = $('#repBtn');
+    if (!b) return;
+    const nb = $$('#repZone [data-rep]:checked').length, msg = !!($('#repMsg')?.value || '').trim(), pl = nb > 1 ? 's' : '';
+    b.disabled = !nb && !msg;
+    b.textContent = nb && msg ? `✓ Enregistrer ${nb} réparation${pl} et le message` : nb ? `✓ Enregistrer ${nb} réparation${pl}` : msg ? 'Envoyer le message' : '✓ Enregistrer';
+  }
+  function rendreRep() {
+    const z = $('#repZone');
+    if (!z) return;
+    if (!z.contains(document.activeElement)) z.innerHTML = htmlReparations(salle(ui.salle).pcs[ui.sel] || pcVide());
+    majBoutonRep();
+  }
+
+  function enregistrerReparations() {
+    if (!peutReparer() || !ui.sel) return;
+    const id = ui.salle, n = ui.sel, cle = `${id}|${n}`, R = salle(id), br = ui.reps[cle] || { coches: [], message: '' };
+    const msg = (br.message || '').trim();
+    const items = pannesDuPoste(R.pcs[n]).filter(it => br.coches.includes(cleItem(it)));
+    if (!items.length && !msg) return;
+    const existait = !!R.pcs[n], avant = JSON.stringify(R.pcs[n] || pcVide());
+    const p = poste(id, n, true), t = maintenant(), signaleLe = p.signale;
+    items.forEach(it => { if (it.cat === 'obs') p.obs = ''; else p.pb[it.cat] = p.pb[it.cat].filter(v => v !== it.label); });
+    if (items.length && !aProbleme(p)) { p.signale = null; p.modifie = t; }   // tout est réparé : le poste fonctionne
+    if (msg) p.reseau = { txt: msg, par: nom(), t };
+    if (!aProbleme(p)) p.reseau = null;
+    nettoyer(id, n);
+    delete ui.reps[cle];
+    const detail = [items.length ? detailReparations(items) : '', msg ? `« ${msg} »` : ''].filter(Boolean).join(' — ');
+    const ev = noter(items.length ? 'reparation' : 'note', id, n, detail, t, items.length
+      ? { reparees: items.map(({ cat, theme, label }) => ({ cat, theme, label })), message: msg, signaleLe, apres: Date.now() + DELAI_ANNULATION }
+      : { message: msg });
+    sauver();
+    rendreInspecteur();
+    apresChangementPoste();
+    const nb = items.length, pl = nb > 1 ? 's' : '';
+    if (!nb) return toast(`Message enregistré pour le poste ${n}.`);
+    toast(`${nb} réparation${pl} enregistrée${pl} pour le poste ${n}.`, 'Annuler', () => {
+      if (existait) R.pcs[n] = JSON.parse(avant); else delete R.pcs[n];
+      defaireEvenement(ev, id, n, 'Réparation annulée');
+      sauver(); rendreTout();
+    }, DELAI_ANNULATION - 500);
+  }
+
   function piedPoste(p) {
-    const ok = p && p.signale && aProbleme(p)
-      ? `<button type="button" class="btn btn-ok" data-act="repare">✓ Réparé, remettre en service</button>`
-      : `<button type="button" class="btn btn-ok" data-act="toutok"${aProbleme(p) ? '' : ' disabled'}>✓ Tout fonctionne</button>`;
+    const ok = peutReparer()
+      ? `<button type="button" class="btn btn-ok" data-act="repare"${aProbleme(p) ? '' : ' disabled'}>✓ Tout est réparé</button>`
+      : p && p.signale && aProbleme(p)
+        ? `<button type="button" class="btn btn-ok" data-act="repare">✓ Réparé, remettre en service</button>`
+        : `<button type="button" class="btn btn-ok" data-act="toutok"${aProbleme(p) ? '' : ' disabled'}>✓ Tout fonctionne</button>`;
     return ok + `<button type="button" class="btn" data-act="suiv">Poste suivant ›</button>`;
   }
 
   function blocHistorique(h, titre = 'Historique', max = 8) {
     if (!h || !h.length) return '';
     return `<div class="histo"><h4>${titre}</h4><ol>${h.slice().sort((a, b) => a.t < b.t ? 1 : -1).slice(0, max).map(e =>
-      `<li class="${esc(e.type)}"><div>${esc(e.quoi || LIB_HISTO[e.type] || e.type)}${e.par ? ' — ' + esc(e.par) : ''}</div>
+      `<li class="${esc(e.type)}"><div>${esc(e.quoi || LIB_HISTO[e.type] || e.type)}${e.par ? ' — ' + esc(e.par) : ''}${e.role === 'technicien' ? ' <span class="role-tag">Service réseau</span>' : ''}</div>
        <div class="d">${fmtDT(e.t)}${e.txt ? ' · ' + esc(e.txt) : ''}</div></li>`).join('')}</ol></div>`;
   }
 
@@ -571,6 +681,8 @@
         </div>
       </div>
       <div class="insp-body">
+        ${htmlMessageReseau(salle(id).pcs[n])}
+        ${peutReparer() ? `<section class="rep" id="repZone">${htmlReparations(salle(id).pcs[n])}</section>` : ''}
         <label class="rech">
           <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
           <input type="search" id="rechPb" value="${esc(ui.rechPb)}" placeholder="Chercher (souris, réseau, licence…)" aria-label="Chercher un problème" autocomplete="off">
@@ -582,6 +694,7 @@
       </div>
       <div class="insp-foot" id="inspFoot">${piedPoste(salle(id).pcs[n])}</div>`;
     if (registreConfigure()) chargerHistorique(id, n);
+    majBoutonRep();
   }
 
   function historiqueSalle(id) {
@@ -645,6 +758,7 @@
     if (pill) { pill.className = `pill ${st}`; pill.textContent = ETATS[st]; }
     const sub = $('#inspSub'); if (sub) sub.innerHTML = sousTitre(id, n);
     const foot = $('#inspFoot'); if (foot && !foot.contains(document.activeElement)) foot.innerHTML = piedPoste(p);
+    rendreRep();
     majPostes();
     rendreEntete();
     rendreOnglets();
@@ -701,22 +815,28 @@
     if (!p) return;
     const avant = JSON.stringify(p);
     const repare = !!(p.signale && aProbleme(p)), detail = resumeCourt(p).join(' · ');
+    // Pour le service réseau, c'est la réparation de toutes les pannes signalées (une ligne par panne dans « Réparations »)
+    const parReseau = peutReparer() && aProbleme(p), pannes = pannesDuPoste(p), signaleLe = p.signale, t = maintenant();
     if (repare) {
-      p.historique.push({ t: maintenant(), type: 'repare', txt: detail, par: nom() });
+      p.historique.push({ t, type: 'repare', txt: detail, par: nom() });
       p.historique = p.historique.slice(-30);
     }
     CATS.forEach(c => { p.pb[c.id] = []; });
-    p.obs = ''; p.signale = null; p.modifie = maintenant();
+    p.obs = ''; p.signale = null; p.modifie = t; p.reseau = null;
     nettoyer(id, n);
-    noter(repare ? 'repare' : 'modif', id, n, repare ? detail : `Tout fonctionne (était : ${detail})`);
+    delete ui.reps[`${id}|${n}`];
+    const ev = parReseau
+      ? noter('reparation', id, n, detailReparations(pannes), t,
+        { reparees: pannes.map(({ cat, theme, label }) => ({ cat, theme, label })), message: '', signaleLe, apres: Date.now() + DELAI_ANNULATION })
+      : noter(repare ? 'repare' : 'modif', id, n, repare ? detail : `Tout fonctionne (était : ${detail})`, t);
     sauver();
     rendreInspecteur();
     apresChangementPoste();
     toast(`Poste ${n} : tout fonctionne.`, 'Annuler', () => {
       R.pcs[n] = JSON.parse(avant);
-      noter('annulation', id, n);
+      defaireEvenement(ev, id, n);
       sauver(); rendreTout();
-    });
+    }, parReseau ? DELAI_ANNULATION - 500 : 6000);
   }
 
   function controler() {
@@ -872,8 +992,16 @@
       }
       if (b.obs) s += `\nObservation générale pour la salle${b.obsEtat === 'sent' ? ' (rappel)' : ''} :\n  ${b.obs.replace(/\n/g, '\n  ')}\n`;
     }
+    const lien = lienApplication(blocs);
+    if (lien) s += `\nUne fois les réparations faites, vous pouvez les enregistrer panne par panne (avec un message) dans l'application :\n${lien}\n`;
     s += `\nCordialement,\n${nom() ? nom() + '\n' : ''}${CFG.signature}\n`;
     return s;
+  }
+  // Lien vers l'application dans le rapport, pour que le service réseau y enregistre ses réparations
+  function lienApplication(blocs) {
+    if (!registreConfigure() || location.protocol === 'file:') return '';
+    const base = location.origin + location.pathname.replace(/index\.html$/, '');
+    return base + (blocs.length === 1 ? '#' + blocs[0].id : '');
   }
 
   function ouvrirRapport() {
@@ -998,11 +1126,12 @@
       s.setAttribute('xmlns', NS);
       dessinerPlan(s, lay);
       majPostes(s, id, false);
-      svg = s.outerHTML + `<p class="legend-print">Rouge : à signaler · orange : signalé, en attente · gris : fonctionne · point bleu : observation</p>`;
+      svg = s.outerHTML + `<p class="legend-print">Rouge : à signaler · orange : signalé, en attente · gris : fonctionne · point bleu : observation · point vert : message du service réseau</p>`;
     }
     const lignes = numeros(id).map(n => {
       const p = R.pcs[n], s = etatPoste(p);
-      return `<tr><td><strong>${n}</strong></td><td>${ETATS[s]}</td><td>${p ? esc(resume(p).join(' ; ')) : ''}</td><td>${esc(p?.obs || '')}</td></tr>`;
+      const rm = p?.reseau && aProbleme(p) ? `<br><em>Service réseau : ${esc(p.reseau.txt)}</em>` : '';
+      return `<tr><td><strong>${n}</strong></td><td>${ETATS[s]}</td><td>${p ? esc(resume(p).join(' ; ')) : ''}</td><td>${esc(p?.obs || '')}${rm}</td></tr>`;
     }).join('');
     imprimer(`<h1>Salle ${esc(id)} — suivi du matériel informatique</h1>
       <div class="meta">${esc(CFG.batiment)} · imprimé le ${fmtDT(maintenant())} · ${b.total} postes : ${b.ok} fonctionnent, ${b.new} à signaler, ${b.sent} en attente${R.controle ? ` · dernier contrôle le ${fmtDT(R.controle.date)}` : ''}</div>
@@ -1021,10 +1150,10 @@
   }
 
   function exporterCsv() {
-    const l = [['Salle', 'Poste', 'État', ...CATS.map(c => c.nom), 'Observation', 'Constaté le', 'Signalé le']];
+    const l = [['Salle', 'Poste', 'État', ...CATS.map(c => c.nom), 'Observation', 'Message du service réseau', 'Constaté le', 'Signalé le']];
     for (const id of SALLES) for (const n of numeros(id)) {
       const p = salle(id).pcs[n], s = etatPoste(p), pb = aProbleme(p);
-      l.push([id, nomPc(id, n), ETATS[s], ...CATS.map(c => p ? p.pb[c.id].join(', ') : ''), p?.obs || '',
+      l.push([id, nomPc(id, n), ETATS[s], ...CATS.map(c => p ? p.pb[c.id].join(', ') : ''), p?.obs || '', pb && p.reseau ? p.reseau.txt : '',
         pb && p.modifie ? fmtDT(p.modifie) : '', pb && p.signale ? fmtDT(p.signale) : '']);
     }
     const csv = '﻿' + l.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\r\n');
@@ -1033,7 +1162,7 @@
   }
 
   function sauvegarderFichier() {
-    // Le code d'équipe ne part pas dans le fichier : il pourrait circuler
+    // Le code d'accès ne part pas dans le fichier : il pourrait circuler
     telecharger(JSON.stringify({ application: 'Suivi matériel informatique', ...donnees, reglages: { ...donnees.reglages, code: '' } }, null, 1),
       `suivi-salles-sauvegarde-${dateFichier()}.json`, 'application/json');
     toast('Sauvegarde téléchargée.');
@@ -1106,6 +1235,10 @@
   // des postes sans action en attente. Sans réseau, l'application continue en local.
   function registreConfigure() { return !!(CFG.registre && CFG.registre.url); }
   function peutEnvoyer() { return registreConfigure() && !!donnees.reglages.code && statut.erreur !== 'code'; }
+  // Le script Google annonce son niveau (api 3 = réparations et messages au concepteur). Tant qu'il ne l'a pas fait,
+  // ces nouveautés restent chez nous : un script plus ancien les inscrirait dans l'historique des postes.
+  const serveurAJour = () => donnees.sync.api >= 3;
+  const envoyable = e => (!e.apres || e.apres <= Date.now()) && !(e.action === 'avis' && !serveurAJour());
   const idEvenement = () => `${donnees.reglages.appareil}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
   function instantane(id, n) {
@@ -1117,11 +1250,11 @@
       };
     }
     const p = salle(id).pcs[n] || pcVide();
-    return JSON.parse(JSON.stringify({ pb: p.pb, obs: p.obs, modifie: p.modifie, signale: p.signale, libelle: ETATS[etatPoste(p)], resume: resume(p).join(' ; ') }));
+    return JSON.parse(JSON.stringify({ pb: p.pb, obs: p.obs, modifie: p.modifie, signale: p.signale, libelle: ETATS[etatPoste(p)], resume: resume(p).join(' ; '), reseau: p.reseau }));
   }
 
-  function noter(action, id, n, detail, t = maintenant()) {
-    if (!registreConfigure() || !n) return;
+  function noter(action, id, n, detail, t = maintenant(), extra = null) {
+    if (!registreConfigure() || !n) return null;
     const etat = instantane(id, n);
     if (detail === undefined) {
       detail = n === 'SALLE'
@@ -1132,11 +1265,26 @@
     const der = donnees.file[donnees.file.length - 1];
     const fusion = (action === 'modif' || action === 'obs_salle') && der && der.action === action
       && der.salle === id && der.poste === n && !enVol.has(der.id);
-    if (fusion) Object.assign(der, { t, detail, etat, par: nom() });
-    else donnees.file.push({ id: idEvenement(), t, salle: id, poste: n, action, detail, par: nom(), appareil: donnees.reglages.appareil, etat });
+    let ev;
+    if (fusion) { Object.assign(der, { t, detail, etat, par: nom() }); ev = der; }
+    else {
+      ev = { id: idEvenement(), t, salle: id, poste: n, action, detail, par: nom(), appareil: donnees.reglages.appareil, etat, ...(extra || {}) };
+      donnees.file.push(ev);
+    }
     if (donnees.file.length > 2000) donnees.file = donnees.file.slice(-2000);
-    planifierEnvoi(action === 'modif' || action === 'obs_salle' ? 4000 : 600);
+    // « apres » : événement retenu jusqu'à cette heure (délai pour annuler une réparation)
+    planifierEnvoi(ev.apres ? Math.max(0, ev.apres - Date.now()) + 300 : (action === 'modif' || action === 'obs_salle' ? 4000 : 600));
     majSauvegarde();
+    return ev;
+  }
+  // Annule une action : retirée de la file si elle n'est pas encore partie, sinon l'annulation est notée au registre
+  function defaireEvenement(ev, id, n, detail) {
+    const i = ev ? donnees.file.findIndex(e => e.id === ev.id) : -1;
+    if (i >= 0 && !enVol.has(ev.id)) {
+      donnees.file.splice(i, 1);
+      // d'autres actions sur ce poste attendent encore : le registre doit recevoir l'état restauré, pas le leur
+      if (donnees.file.some(e => e.salle === id && e.poste === n)) noter('annulation', id, n, detail);
+    } else noter('annulation', id, n, detail);
   }
 
   let minuteurEnvoi = null, echeanceEnvoi = 0;
@@ -1169,14 +1317,22 @@
   function erreurRegistre(code) {
     const avant = statut.erreur;
     statut.erreur = code || 'serveur';
-    if (code === 'code' && avant !== 'code') ouvrirRegistre('Le code d\'équipe a été refusé par le registre. Vérifiez-le auprès du responsable de l\'application.');
+    if (code === 'code' && avant !== 'code') ouvrirRegistre('Le code d\'accès a été refusé par le registre. Vérifiez-le auprès du responsable de l\'application.');
   }
 
   async function envoyerFile() {
     if (!peutEnvoyer() || statut.envoi || !donnees.file.length) return;
+    const maintenantMs = Date.now();
+    const prets = donnees.file.filter(envoyable);
+    if (!prets.length) {
+      // réparations encore annulables : on attend la fin du délai (les messages en attente d'un script à jour attendent sans minuteur)
+      const retenus = donnees.file.filter(e => e.apres && e.apres > maintenantMs);
+      if (retenus.length) planifierEnvoi(Math.max(300, Math.min(...retenus.map(e => e.apres)) - maintenantMs + 50));
+      return;
+    }
     statut.envoi = true;
     majSauvegarde();
-    const lot = donnees.file.slice(0, 100);
+    const lot = prets.slice(0, 100);
     lot.forEach(e => enVol.add(e.id));
     try {
       const r = await appel({ action: 'envoyer', evenements: lot });
@@ -1186,6 +1342,7 @@
         const ids = new Set(lot.map(e => e.id));
         donnees.file = donnees.file.filter(e => !ids.has(e.id));
         statut.erreur = null;
+        if (r.refuses > 0) toast('Le registre a refusé ' + (r.refuses > 1 ? 'des réparations' : 'une réparation') + ' : il faut le code du service réseau.');
         cacheHisto.clear();
         appliquerEtat(r);
         const z = $('#histoDistant');
@@ -1220,7 +1377,7 @@
           dire('Le registre a refusé ce plan (position invalide) : il reste sur cet ordinateur.');
         } else if (r.erreur === 'droits') {
           donnees.sync.role = 'equipe';
-          majMenuResponsable();
+          majRole();
           dire('Seul le code responsable peut modifier les plans.');
         } else erreurRegistre(r.erreur);
         return false;
@@ -1268,7 +1425,7 @@
   async function rafraichir() {
     if (!peutEnvoyer() || document.hidden) return;
     await poussesPlansEnAttente();
-    if (donnees.file.length) return envoyerFile();   // l'envoi rapporte aussi l'état à jour
+    if (donnees.file.some(envoyable)) return envoyerFile();   // l'envoi rapporte aussi l'état à jour
     try {
       const r = await appel({ action: 'etat' });
       if (r.ok && reponseComplete(r)) { statut.erreur = null; appliquerEtat(r); }
@@ -1299,9 +1456,15 @@
 
   function appliquerEtat(r) {
     // Seul le code responsable reçoit l'adresse de la feuille Google
-    donnees.sync.role = r.role === 'responsable' ? 'responsable' : 'equipe';
+    const roleAvant = donnees.sync.role, apiAvant = donnees.sync.api;
+    donnees.sync.api = Math.max(0, Number(r.api) || 0);
+    donnees.sync.role = r.role === 'responsable' || r.role === 'technicien' ? r.role : 'equipe';
     donnees.sync.feuille = donnees.sync.role === 'responsable' ? String(r.feuille || '') : '';
-    majMenuResponsable();
+    if (r.messagesInfo && typeof r.messagesInfo.n === 'number') {   // pour le responsable : nombre de messages au concepteur
+      donnees.sync.msgN = r.messagesInfo.n;
+      donnees.sync.msgVu = Math.min(donnees.sync.msgVu, r.messagesInfo.n);
+    }
+    majRole();
     // Plans partagés (un script Google pas encore à jour n'en envoie pas : on garde ceux qu'on a)
     const majAvant = Object.fromEntries(SALLES.map(id => [id, donnees.plans[id]?.maj || '']));
     if (r.plans && typeof r.plans === 'object') donnees.plans = plansValides(r.plans);
@@ -1326,11 +1489,12 @@
       }
       const p = salle(id).pcs[n];
       if (p && p.serveur === d.maj) continue;
-      const pbDistant = rangerPb(d.pb);
-      const signature = (pb, x) => JSON.stringify([CATS.map(c => pb[c.id]), x.obs || '', x.modifie || null, x.signale || null]);
-      if (p && signature(p.pb, p) === signature(pbDistant, d)) { p.serveur = d.maj; continue; }   // écho de nos propres actions
+      const pbDistant = rangerPb(d.pb), reseauDistant = reseauValide(d.reseau);
+      const signature = (pb, x, rs) => JSON.stringify([CATS.map(c => pb[c.id]), x.obs || '', x.modifie || null, x.signale || null, rs ? [rs.txt, rs.t] : null]);
+      if (p && signature(p.pb, p, p.reseau) === signature(pbDistant, d, reseauDistant)) { p.serveur = d.maj; continue; }   // écho de nos propres actions
       const P = p || pcVide();
       P.pb = pbDistant;
+      P.reseau = reseauDistant;
       P.obs = String(d.obs || '');
       P.modifie = d.modifie || null;
       P.signale = d.signale || null;
@@ -1342,6 +1506,8 @@
       changes.add(cle);
     }
     if (planModifie.includes(ui.salle) && !ui.edition && ui.vue === 'plan') { rendrePlan(); rendreEntete(); rendreNonPlaces(); }
+    if ((roleAvant !== donnees.sync.role || apiAvant !== donnees.sync.api) && ui.sel && !ui.edition && !document.activeElement?.matches('#inspector textarea, #inspector input')) rendreInspecteur();   // la fiche change selon le profil et le script
+    if (donnees.file.some(envoyable) && !statut.envoi) planifierEnvoi(300);   // un script à jour libère les messages restés en attente
     if (changes.size) rendreApresSync(changes);
     if (donnees.sync.role === 'responsable' && SALLES.some(id => salle(id).plan?.enAttente)) setTimeout(poussesPlansEnAttente, 400);
   }
@@ -1367,13 +1533,13 @@
       if (!z) return;
       if (!evs.length) return message('Aucun événement enregistré pour le moment.');
       z.innerHTML = blocHistorique(evs.map(e => ({
-        t: e.t, type: e.action, par: e.par, txt: e.detail,
+        t: e.t, type: e.action, par: e.par, role: e.role, txt: e.detail,
         quoi: n ? e.libelle : `${e.poste === 'Salle' || e.poste === 'Plan' ? e.poste : 'Poste ' + e.poste.replace(/^.*P/, '')} : ${e.libelle.toLowerCase()}`
       })), titre, n ? 20 : 12);
     };
     const c = cacheHisto.get(cle);
     if (c && Date.now() - c.t < 60000) return afficher(c.evs);
-    if (!peutEnvoyer()) return message('Saisissez le code d\'équipe pour voir l\'historique commun.');
+    if (!peutEnvoyer()) return message('Saisissez le code d\'accès pour voir l\'historique commun.');
     message('Chargement du registre…');
     try {
       const r = await appel({ action: 'historique', salle: id, poste: n, max: n ? 20 : 12 });
@@ -1389,8 +1555,9 @@
   // Page fermée avec des actions en attente : dernier envoi sans attendre la réponse.
   // Elles restent dans la file ; le registre ignore les doublons au prochain envoi.
   function balise() {
-    if (!peutEnvoyer() || !donnees.file.length || !navigator.sendBeacon) return;
-    const corps = JSON.stringify({ action: 'envoyer', code: donnees.reglages.code, evenements: donnees.file.slice(0, 100) });
+    const prets = donnees.file.filter(envoyable);
+    if (!peutEnvoyer() || !prets.length || !navigator.sendBeacon) return;
+    const corps = JSON.stringify({ action: 'envoyer', code: donnees.reglages.code, evenements: prets.slice(0, 100) });
     try { navigator.sendBeacon(CFG.registre.url, new Blob([corps], { type: 'text/plain;charset=utf-8' })); } catch (e) { /* tant pis */ }
   }
 
@@ -1408,10 +1575,12 @@
     const lien = $('#lienFeuille');
     const responsable = donnees.sync.role === 'responsable' && !!donnees.sync.feuille;
     lien.hidden = !responsable;
-    if (responsable) {
-      lien.href = donnees.sync.feuille;
-      $('#registreEtat').textContent += ' Connecté avec le code responsable.';
-    }
+    if (responsable) lien.href = donnees.sync.feuille;
+    const profil = {
+      responsable: ' Connecté avec le code responsable.',
+      technicien: ' Connecté avec le code du service réseau : vous pouvez enregistrer les réparations.'
+    }[donnees.sync.role];
+    if (profil) $('#registreEtat').textContent += profil;
     if (!d.open) d.showModal();
   }
 
@@ -1519,6 +1688,12 @@
       else if (act === 'fermer') choisir(null);
       else if (act === 'toutok' || act === 'repare') remettreEnService();
       else if (act === 'controle') controler();
+      else if (act === 'rep-tout') {
+        const br = brouillonRep();
+        br.coches = $$('#repZone [data-rep]').map(c => c.dataset.rep);
+        $$('#repZone [data-rep]').forEach(c => { c.checked = true; });
+        majBoutonRep();
+      } else if (act === 'rep-valider') enregistrerReparations();
       return;
     }
     const li = e.target.closest('.pb-salle li');
@@ -1534,8 +1709,17 @@
       rendreCategories();
     }
   }, true);
+  $('#inspector').addEventListener('change', e => {
+    if (!e.target.matches('[data-rep]')) return;
+    const br = brouillonRep(), cle = e.target.dataset.rep;
+    br.coches = e.target.checked ? [...new Set([...br.coches, cle])] : br.coches.filter(c => c !== cle);
+    majBoutonRep();
+  });
   $('#inspector').addEventListener('input', e => {
-    if (e.target.id === 'rechPb') {
+    if (e.target.id === 'repMsg') {
+      brouillonRep().message = e.target.value;
+      majBoutonRep();
+    } else if (e.target.id === 'rechPb') {
       ui.rechPb = e.target.value;
       rendreCategories();
     } else if (e.target.id === 'inspObs') {
@@ -1600,7 +1784,7 @@
     ({
       fiche: imprimerFiche, csv: exporterCsv, sauver: sauvegarderFichier,
       restaurer: () => $('#fileImport').click(), aide: () => $('#dlgAide').showModal(), effacer: effacerTout,
-      registre: () => ouvrirRegistre(),
+      registre: () => ouvrirRegistre(), avis: ouvrirAvis, boite: ouvrirBoite,
       feuille: () => { if (donnees.sync.role === 'responsable' && donnees.sync.feuille) window.open(donnees.sync.feuille, '_blank', 'noopener'); }
     })[b.dataset.menu]();
   });
@@ -1625,33 +1809,115 @@
   $$('dialog').forEach(d => d.addEventListener('click', e => { if (e.target === d) d.close(); }));
   $$('[data-fermer]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close('cancel')));
 
-  // Registre commun : nom et code d'équipe
+  // Registre commun : nom et code d'accès
   $('#saveState').addEventListener('click', () => { if (registreConfigure()) ouvrirRegistre(); });
   function lireIdentite() {
     const code = $('#regCode').value.trim();
     if (code !== donnees.reglages.code) {   // nouveau code : les droits seront redonnés par le registre
       donnees.sync.role = '';
       donnees.sync.feuille = '';
-      majMenuResponsable();
+      majRole();
+      if (ui.sel && !ui.edition) rendreInspecteur();
     }
     donnees.reglages.nom = $('#regNom').value.trim();
     donnees.reglages.code = code;
     statut.erreur = null;
     sauver();
   }
-  function majMenuResponsable() {
-    $('[data-menu="feuille"]').hidden = !(donnees.sync.role === 'responsable' && donnees.sync.feuille);
+  // Ce qui dépend du profil (équipe, service réseau, responsable) : boutons et entrées de menu
+  function majRole() {
+    const r = donnees.sync.role, reg = registreConfigure();
+    $('[data-menu="feuille"]').hidden = !(r === 'responsable' && donnees.sync.feuille);
+    $('#btnRapport').hidden = reg && r === 'technicien';   // le service réseau reçoit les rapports : il n'en envoie pas
+    $('[data-menu="avis"]').hidden = !reg;
+    $('[data-menu="boite"]').hidden = !(reg && r === 'responsable');
+    majBadgeMessages();
+    majSauvegarde();
+  }
+  function majBadgeMessages() {
+    const nouveaux = donnees.sync.role === 'responsable' ? Math.max(0, donnees.sync.msgN - donnees.sync.msgVu) : 0;
+    $('#btnMenu').classList.toggle('a-badge', nouveaux > 0);
+    $('#boiteNb').textContent = nouveaux ? ` · ${nouveaux} nouveau${nouveaux > 1 ? 'x' : ''}` : '';
+  }
+
+  // ---------- Messages au concepteur ----------
+  const contexteAvis = () => [`écran ${innerWidth}×${innerHeight}`, `vue ${ui.vue}`, ui.sel ? `poste ${ui.sel}` : '',
+    (navigator.userAgent.match(/(Edg|Chrome|Firefox|Safari)\/[\d.]+/) || [''])[0]].filter(Boolean).join(' · ');
+
+  function ouvrirAvis() {
+    $('#avisTexte').value = '';
+    $('#avisType').value = 'idee';
+    $('#avisInfo').textContent = `Envoyé avec votre nom${nom() ? ' (' + nom() + ')' : ''}, la version de l'application (V ${CFG.version}) et la salle affichée (${ui.salle}).`;
+    $('#dlgAvis').showModal();
+    $('#avisTexte').focus();
+  }
+  // Le message passe par la même file que les actions : gardé hors ligne, jamais envoyé deux fois
+  function empilerAvis(type, texte) {
+    donnees.file.push({
+      id: idEvenement(), t: maintenant(), salle: ui.salle, poste: 'AVIS', action: 'avis', detail: texte.slice(0, 2000),
+      type: TYPES_AVIS[type] ? type : 'autre', par: nom(), appareil: donnees.reglages.appareil, version: CFG.version, contexte: contexteAvis()
+    });
+    planifierEnvoi(300);
+    sauver();
+    toast(peutEnvoyer() && !statut.erreur && serveurAJour()
+      ? 'Merci ! Votre message est transmis au concepteur.'
+      : 'Message gardé : il sera transmis au concepteur dès que possible.');
+  }
+
+  let boiteMessages = [];
+  async function ouvrirBoite() {
+    const corps = $('#boiteCorps');
+    corps.innerHTML = '<p class="muted">Chargement des messages…</p>';
+    $('#boiteCopier').disabled = true;
+    if (!$('#dlgBoite').open) $('#dlgBoite').showModal();
+    try {
+      const r = await appel({ action: 'messages', max: 200 });
+      if (!r.ok) { corps.innerHTML = `<p class="alerte">${r.erreur === 'droits' ? 'Cette liste est réservée au code responsable.' : 'Le registre a refusé la demande.'}</p>`; return; }
+      if (!Array.isArray(r.messages)) { corps.innerHTML = '<p class="alerte">Le script Google n\'est pas à jour : il ne gère pas encore les messages.</p>'; return; }
+      boiteMessages = r.messages;
+      donnees.sync.msgN = r.messagesInfo && typeof r.messagesInfo.n === 'number' ? r.messagesInfo.n : boiteMessages.length;
+      donnees.sync.msgVu = donnees.sync.msgN;
+      sauver();
+      majBadgeMessages();
+      corps.innerHTML = htmlBoite(boiteMessages);
+      $('#boiteCopier').disabled = !boiteMessages.length;
+    } catch (e) {
+      corps.innerHTML = '<p class="alerte">Registre injoignable pour le moment.</p>';
+    }
+  }
+  const detailsAvis = m => [m.salle ? 'Salle ' + m.salle : '', m.version ? 'V ' + m.version : '', m.contexte].filter(Boolean).join(' · ');
+  function htmlBoite(msgs) {
+    if (!msgs.length) return '<p class="muted">Aucun message pour le moment.</p>';
+    return msgs.map(m => `<article class="msg">
+      <header><span class="pill type-${esc(m.type)}">${esc(TYPES_AVIS[m.type] || m.libelle || 'Autre')}</span>
+        <strong>${esc(m.par || 'Anonyme')}</strong>${m.role && m.role !== 'equipe' ? ` <span class="role-tag">${esc(libRole(m.role))}</span>` : ''}
+        <span class="muted">${esc(fmtDT(m.t))}</span></header>
+      <p>${esc(m.texte)}</p>
+      <footer>${esc(detailsAvis(m))}</footer></article>`).join('');
+  }
+  function texteBoite(msgs) {
+    return `Messages au concepteur (${msgs.length}) — copie du ${fmtDT(maintenant())}\n\n` + msgs.map(m =>
+      `[${fmtDT(m.t)}] ${m.par || 'Anonyme'} (${libRole(m.role) || '—'}) — ${TYPES_AVIS[m.type] || 'Autre'}\n${m.texte}\n(${detailsAvis(m)})`).join('\n\n---\n\n');
   }
   $('#dlgRegistre form').addEventListener('submit', e => {
     if (e.submitter && e.submitter.value !== 'ok') return;
     lireIdentite();
     rafraichir();
   });
+  $('#formAvis').addEventListener('submit', e => {
+    if (e.submitter && e.submitter.value !== 'ok') return;
+    const texte = $('#avisTexte').value.trim();
+    if (!texte) { e.preventDefault(); $('#avisTexte').focus(); return; }   // la fenêtre reste ouverte
+    empilerAvis($('#avisType').value, texte);
+  });
+  $('#boiteCopier').addEventListener('click', async () => {
+    toast((await copier(texteBoite(boiteMessages))) ? 'Messages copiés : vous pouvez les coller où vous voulez.' : 'Copie impossible dans ce navigateur : sélectionnez le texte et faites Ctrl+C.');
+  });
   $('#btnSync').addEventListener('click', async () => {
     lireIdentite();
     $('#registreEtat').textContent = 'Échange avec le registre…';
     await rafraichir();
-    ouvrirRegistre(statut.erreur === 'code' ? 'Le code d\'équipe a été refusé par le registre.'
+    ouvrirRegistre(statut.erreur === 'code' ? 'Le code d\'accès a été refusé par le registre.'
       : statut.erreur ? 'Le registre ne répond pas : vérifiez la connexion. Les actions restent en attente et partiront plus tard.' : undefined);
   });
 
@@ -1677,10 +1943,10 @@
     setTimeout(() => toast('Les relevés de la version précédente ont été repris.'), 300);
   }
   rendreTout();
+  majRole();
 
   if (registreConfigure()) {
     $('[data-menu="registre"]').hidden = false;
-    majMenuResponsable();
     if (!donnees.reglages.code || !nom()) setTimeout(() => ouvrirRegistre(), 400);
     else rafraichir();
     setInterval(rafraichir, 60000);

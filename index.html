@@ -39,7 +39,9 @@
         </button>
         <div id="menuList" class="menu-list" role="menu" hidden>
           <button role="menuitem" data-menu="feuille" hidden>Ouvrir le registre (Google Sheets)</button>
-          <button role="menuitem" data-menu="registre" hidden>Registre commun (nom, code d'équipe)…</button>
+          <button role="menuitem" data-menu="registre" hidden>Registre commun (nom, code d'accès)…</button>
+          <button role="menuitem" data-menu="boite" hidden>Messages reçus<span id="boiteNb"></span></button>
+          <button role="menuitem" data-menu="avis" hidden>Écrire au concepteur…</button>
           <button role="menuitem" data-menu="fiche">Imprimer la fiche de la salle</button>
           <button role="menuitem" data-menu="csv">Exporter en tableur (CSV)</button>
           <hr>
@@ -103,6 +105,7 @@
           <span><i class="sw sw-new"></i>À signaler</span>
           <span><i class="sw sw-sent"></i>Signalé, en attente</span>
           <span><i class="sw sw-obs"></i>Observation</span>
+          <span><i class="sw sw-rep"></i>Message du service réseau</span>
         </div>
       </section>
 
@@ -111,7 +114,7 @@
   </main>
 
   <footer class="foot">
-    <span class="foot-id"><img src="logo.png" alt="Lycée Urbain Vitry" class="foot-logo"><span>V 2.5 · jpA</span></span>
+    <span class="foot-id"><img src="logo.png" alt="Lycée Urbain Vitry" class="foot-logo"><span>V 2.6 · jpA</span></span>
     <span>Les données restent dans ce navigateur. Pensez à « Sauvegarder les données » de temps en temps.</span>
   </footer>
 
@@ -170,6 +173,8 @@
           <li><strong>« Rapport »</strong> prépare le message pour le service réseau (Gmail, messagerie, copie ou impression). Les postes envoyés passent en orange : « signalé, en attente ».</li>
           <li>Quand le poste est réparé, ouvrez-le et cliquez <strong>« Réparé, remettre en service »</strong>. La réparation reste dans l'historique du poste.</li>
         </ol>
+        <p class="small"><strong>Service réseau.</strong> Avec son propre code d'accès, le service réseau ouvre le poste, <strong>coche chaque panne réparée</strong> et peut laisser un message (« souris remplacée », « clavier commandé »…). Les collègues voient aussitôt les pannes restantes et le message : un point vert apparaît sur le poste.</p>
+        <p class="small"><strong>Une idée ou un problème dans l'application ?</strong> Menu ⋯ → « Écrire au concepteur » : votre message lui parvient directement et sert à améliorer l'application.</p>
         <p class="small"><strong>Registre commun.</strong> Chaque action est inscrite avec votre nom dans le registre de l'équipe : tout le monde voit le même état des postes, et l'historique de chaque poste est conservé. Sans réseau, l'application continue de fonctionner ; les actions partent au retour de la connexion.</p>
         <p class="muted small">Une copie des données est aussi gardée dans ce navigateur. Pour les transporter ou les garder : menu ⋯ → « Sauvegarder les données ». « Ajuster le plan » permet de corriger la place d'un poste : réservé au responsable (code responsable), le plan corrigé est enregistré dans le registre et visible aussitôt par tous.</p>
       </div>
@@ -188,7 +193,7 @@
         <p id="registreMsg" class="small"></p>
         <label class="field"><span>Votre nom</span>
           <input type="text" id="regNom" required autocomplete="name" placeholder="ex. M. Dupont"></label>
-        <label class="field"><span>Code d'équipe</span>
+        <label class="field"><span>Code d'accès</span>
           <input type="text" id="regCode" required autocomplete="off" spellcheck="false" placeholder="donné par le responsable de l'application"></label>
         <p id="registreEtat" class="small muted"></p>
       </div>
@@ -198,6 +203,48 @@
         <button class="btn btn-primary" value="ok">Enregistrer</button>
       </footer>
     </form>
+  </dialog>
+
+  <!-- Message au concepteur -->
+  <dialog id="dlgAvis" class="dialog" aria-labelledby="avisTitre">
+    <form method="dialog" class="dialog-inner" id="formAvis">
+      <header class="dialog-head">
+        <h2 id="avisTitre">Écrire au concepteur</h2>
+        <button type="button" class="btn btn-icon" data-fermer aria-label="Fermer">&times;</button>
+      </header>
+      <div class="dialog-body">
+        <p class="small">Une idée, un problème dans l'application, une question ? Votre message arrive directement au concepteur, qui s'en sert pour l'améliorer.</p>
+        <label class="field"><span>Type de message</span>
+          <select id="avisType">
+            <option value="idee">Idée d'amélioration</option>
+            <option value="anomalie">Un problème dans l'application</option>
+            <option value="question">Une question</option>
+            <option value="autre">Autre</option>
+          </select></label>
+        <label class="field"><span>Votre message</span>
+          <textarea id="avisTexte" rows="6" maxlength="2000" required placeholder="Décrivez votre idée, ou ce qui ne fonctionne pas comme prévu…"></textarea></label>
+        <p id="avisInfo" class="small muted"></p>
+      </div>
+      <footer class="dialog-foot">
+        <button type="button" class="btn" data-fermer>Annuler</button>
+        <button class="btn btn-primary" value="ok">Envoyer le message</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Messages reçus (responsable) -->
+  <dialog id="dlgBoite" class="dialog dialog-wide" aria-labelledby="boiteTitre">
+    <div class="dialog-inner">
+      <header class="dialog-head">
+        <h2 id="boiteTitre">Messages reçus</h2>
+        <button type="button" class="btn btn-icon" data-fermer aria-label="Fermer">&times;</button>
+      </header>
+      <div class="dialog-body" id="boiteCorps"></div>
+      <footer class="dialog-foot">
+        <button type="button" class="btn" id="boiteCopier" disabled>Copier la liste</button>
+        <button type="button" class="btn btn-primary" data-fermer>Fermer</button>
+      </footer>
+    </div>
   </dialog>
 
   <div id="toast" class="toast" role="status" hidden><span id="toastMsg"></span><button id="toastAction" type="button" hidden></button></div>
