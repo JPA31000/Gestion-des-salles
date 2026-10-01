@@ -26,7 +26,7 @@ const ECRAN = [
 ];
 
 window.CONFIG_SALLES = {
-  version: '2.6',
+  version: '2.7',
   batiment: 'Bât 13',
   destinataire: 'reseauinfovitry@gmail.com',
   signature: "L'équipe GCCE",
@@ -35,7 +35,7 @@ window.CONFIG_SALLES = {
      (Déployer > Gérer les déploiements > URL se terminant par /exec).
      Laisser vide pour un usage sans registre (données gardées dans chaque navigateur). */
   registre: {
-    url: 'https://script.google.com/macros/s/AKfycbxi61deRjn9UEA7mKIF66veD77TgqgbvsUBVV4zYhvJhPu63uuNht8u60BfdiQdqf15/exec'
+    url: 'https://script.google.com/macros/s/AKfycby0O2OlUG2K5HbMX5ZawY-_Y5x5WUEekxIDfVORMW0GrZMX3hFnAuZ70uOTx4mc4kDy/exec'
   },
 
   /* Thèmes de pannes : chaque thème est un menu dépliant de la fiche du poste,

@@ -1,4 +1,4 @@
-/* Suivi du matériel informatique — V 2.6
+/* Suivi du matériel informatique — V 2.7
  * Plans des salles, fiche par poste, rapport au service réseau.
  * Les données restent dans le navigateur (localStorage). */
 (() => {
@@ -1581,6 +1581,16 @@
       technicien: ' Connecté avec le code du service réseau : vous pouvez enregistrer les réparations.'
     }[donnees.sync.role];
     if (profil) $('#registreEtat').textContent += profil;
+    // Le script Google est-il à jour ? (réparations du service réseau et messages au concepteur en dépendent)
+    const sc = $('#registreScript');
+    sc.hidden = !donnees.sync.dernier;
+    if (donnees.sync.dernier) {
+      const aJour = serveurAJour();
+      sc.className = aJour ? 'small muted' : 'small alerte';
+      sc.textContent = aJour
+        ? 'Script Google à jour : réparations du service réseau et messages au concepteur actifs.'
+        : 'Le script Google n\'est pas encore à jour : les réparations du service réseau et les messages au concepteur attendent sa mise à jour.';
+    }
     if (!d.open) d.showModal();
   }
 
