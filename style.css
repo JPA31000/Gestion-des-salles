@@ -437,6 +437,39 @@ textarea.obs-salle { min-height: 84px; }
 .dialog-head h2 { font-size: 18px; }
 .dialog-body { padding: 16px 18px; overflow-y: auto; }
 .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding: 12px 18px; border-top: 1px solid var(--line); background: var(--surface-2); border-radius: 0 0 14px 14px; }
+
+/* Identification / registre commun : logo du lycée à gauche, formulaire à droite */
+.dialog-ident { width: min(780px, calc(100vw - 32px)); overflow: hidden; }
+.ident { flex-direction: row; }
+.ident-logo {
+  flex: 0 0 232px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  padding: 28px 20px; text-align: center; border-right: 1px solid var(--line);
+  background: var(--brand-soft);
+  background: linear-gradient(165deg, var(--brand-soft), color-mix(in srgb, var(--brand) 20%, var(--surface)));
+}
+.ident-img { width: 100%; max-width: 192px; height: auto; border-radius: 8px; background: #f7f7f7; box-shadow: 0 2px 12px rgba(16, 24, 32, .16); }
+.ident-textes { margin-top: 16px; }
+.ident-app { margin: 0; font-size: 16px; font-weight: 700; line-height: 1.25; }
+.ident-sous { margin: 4px 0 0; font-size: 12.5px; color: var(--muted); }
+.ident-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.ident-main .dialog-body { flex: 1; }
+.ident-main .dialog-foot { border-radius: 0; }
+.ident-options { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; margin-top: 6px; }
+.ident-options .check { padding: 0; font-size: 13px; }
+#registreMsg:not(.alerte) { margin-top: 0; color: var(--ink-2); }
+/* À l'ouverture : seulement l'identification, et impossible de fermer la fenêtre sans s'identifier */
+.dialog-ident.debut #btnSync, .dialog-ident.debut #lienFeuille, .dialog-ident.debut #registreEtat, .dialog-ident.debut #registreScript { display: none; }
+.dialog-ident[data-obligatoire] [data-fermer] { display: none; }
+@media (max-width: 640px) {
+  .ident { flex-direction: column; overflow-y: auto; }
+  .ident-logo { flex: none; flex-direction: row; justify-content: flex-start; gap: 14px; padding: 14px 16px; text-align: left; border-right: 0; border-bottom: 1px solid var(--line); }
+  .ident-logo .ident-img { width: 108px; max-width: 108px; flex: none; }
+  .ident-textes { margin-top: 0; flex: 1; min-width: 0; }
+  .ident-app { font-size: 14px; }
+  .ident-sous { font-size: 12px; }
+  .ident-main .dialog-body { overflow-y: visible; }
+}
+
 .rapport-grid { display: grid; grid-template-columns: 270px 1fr; gap: 20px; }
 .rapport-options fieldset { border: 0; padding: 0; margin: 0 0 14px; }
 .rapport-options legend { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); margin-bottom: 6px; padding: 0; }

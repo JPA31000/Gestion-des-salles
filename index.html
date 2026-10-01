@@ -115,7 +115,7 @@
   </main>
 
   <footer class="foot">
-    <span class="foot-id"><img src="logo.png" alt="Lycée Urbain Vitry" class="foot-logo"><span>V 2.8 · jpA</span></span>
+    <span class="foot-id"><img src="logo.png" alt="Lycée Urbain Vitry" class="foot-logo"><span>V 2.9 · jpA</span></span>
     <span>Les données restent dans ce navigateur. Pensez à « Sauvegarder les données » de temps en temps.</span>
   </footer>
 
@@ -176,6 +176,7 @@
         </ol>
         <p class="small"><strong>Service réseau.</strong> Avec son propre code d'accès, le service réseau ouvre le poste, <strong>coche chaque panne réparée</strong> et peut laisser un message (« souris remplacée », « clavier commandé »…). Les collègues voient aussitôt les pannes restantes et le message : un point vert apparaît sur le poste.</p>
         <p class="small"><strong>Une idée ou un problème dans l'application ?</strong> Menu ⋯ → « Écrire au concepteur » : votre message lui parvient directement et sert à améliorer l'application.</p>
+        <p class="small"><strong>Identification.</strong> À chaque ouverture, une fenêtre vous demande de confirmer votre nom et votre code d'accès : c'est ce nom qui apparaît dans l'historique. Sur un ordinateur partagé, « Changer d'utilisateur » efface le nom et le code mémorisés.</p>
         <p class="small"><strong>Registre commun.</strong> Chaque action est inscrite avec votre nom dans le registre de l'équipe : tout le monde voit le même état des postes, et l'historique de chaque poste est conservé. Sans réseau, l'application continue de fonctionner ; les actions partent au retour de la connexion.</p>
         <p class="muted small">Une copie des données est aussi gardée dans ce navigateur. Pour les transporter ou les garder : menu ⋯ → « Sauvegarder les données ». « Ajuster le plan » permet de réagencer la salle (déplacer, tourner ou retirer un poste) : réservé au responsable et au service réseau, le plan modifié est enregistré dans le registre et visible aussitôt par tous.</p>
       </div>
@@ -183,27 +184,40 @@
     </form>
   </dialog>
 
-  <!-- Registre commun -->
-  <dialog id="dlgRegistre" class="dialog" aria-labelledby="registreTitre">
-    <form method="dialog" class="dialog-inner">
-      <header class="dialog-head">
-        <h2 id="registreTitre">Registre commun</h2>
-        <button type="button" class="btn btn-icon" data-fermer aria-label="Fermer">&times;</button>
-      </header>
-      <div class="dialog-body">
-        <p id="registreMsg" class="small"></p>
-        <label class="field"><span>Votre nom</span>
-          <input type="text" id="regNom" required autocomplete="name" placeholder="ex. M. Dupont"></label>
-        <label class="field"><span>Code d'accès</span>
-          <input type="text" id="regCode" required autocomplete="off" spellcheck="false" placeholder="donné par le responsable de l'application"></label>
-        <p id="registreEtat" class="small muted"></p>
-        <p id="registreScript" class="small" hidden></p>
+  <!-- Identification et registre commun : la première fenêtre affichée à l'ouverture de l'application -->
+  <dialog id="dlgRegistre" class="dialog dialog-ident" aria-labelledby="registreTitre">
+    <form method="dialog" class="dialog-inner ident">
+      <aside class="ident-logo">
+        <img src="logo.png" alt="Lycée Urbain Vitry" class="ident-img" width="318" height="160">
+        <div class="ident-textes">
+          <p class="ident-app">Suivi du matériel informatique</p>
+          <p class="ident-sous">Bâtiment 13 · salles informatiques</p>
+        </div>
+      </aside>
+      <div class="ident-main">
+        <header class="dialog-head">
+          <h2 id="registreTitre">Registre commun</h2>
+          <button type="button" class="btn btn-icon" data-fermer aria-label="Fermer">&times;</button>
+        </header>
+        <div class="dialog-body">
+          <p id="registreMsg" class="small"></p>
+          <label class="field"><span>Votre nom</span>
+            <input type="text" id="regNom" required autocomplete="name" placeholder="ex. M. Dupont"></label>
+          <label class="field"><span>Code d'accès</span>
+            <input type="password" id="regCode" required autocomplete="off" spellcheck="false" placeholder="donné par le responsable de l'application"></label>
+          <div class="ident-options">
+            <label class="check"><input type="checkbox" id="regAfficher"> Afficher le code</label>
+            <button type="button" class="lien" id="regAutre" hidden>Ce n'est pas vous ? Changer d'utilisateur</button>
+          </div>
+          <p id="registreEtat" class="small muted"></p>
+          <p id="registreScript" class="small" hidden></p>
+        </div>
+        <footer class="dialog-foot">
+          <a id="lienFeuille" class="btn" target="_blank" rel="noopener" hidden>Ouvrir le registre</a>
+          <button type="button" class="btn" id="btnSync">Synchroniser maintenant</button>
+          <button class="btn btn-primary" id="regContinuer" value="ok">Enregistrer</button>
+        </footer>
       </div>
-      <footer class="dialog-foot">
-        <a id="lienFeuille" class="btn" target="_blank" rel="noopener" hidden>Ouvrir le registre</a>
-        <button type="button" class="btn" id="btnSync">Synchroniser maintenant</button>
-        <button class="btn btn-primary" value="ok">Enregistrer</button>
-      </footer>
     </form>
   </dialog>
 

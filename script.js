@@ -1,4 +1,4 @@
-/* Suivi du matériel informatique — V 2.8
+/* Suivi du matériel informatique — V 2.9
  * Plans des salles, fiche par poste, rapport au service réseau.
  * Les données restent dans le navigateur (localStorage). */
 (() => {
@@ -1579,11 +1579,29 @@
     try { navigator.sendBeacon(CFG.registre.url, new Blob([corps], { type: 'text/plain;charset=utf-8' })); } catch (e) { /* tant pis */ }
   }
 
-  function ouvrirRegistre(message) {
-    const d = $('#dlgRegistre');
-    $('#regNom').value = donnees.reglages.nom;
-    $('#regCode').value = donnees.reglages.code;
-    $('#registreMsg').textContent = message || 'Chaque action (panne relevée, signalement, réparation, contrôle) est inscrite dans le registre commun de l\'équipe, avec votre nom.';
+  // Texte d'accueil de l'identification (nom déjà connu sur cet ordinateur, ou première fois)
+  const texteIdentification = connu => (connu ? `Bonjour ${nom()}. Confirmez que c'est bien vous pour commencer.` : 'Pour commencer, identifiez-vous.')
+    + " Votre nom est inscrit dans l'historique des postes (relevés, signalements, réparations).";
+
+  // debut = true : l'identification affichée à l'ouverture de l'application. Elle ne se ferme pas tant que la personne
+  // ne s'est pas identifiée ; hors de ce cas (menu, refus du code), c'est la fenêtre de réglages du registre.
+  function ouvrirRegistre(message, debut = false) {
+    const d = $('#dlgRegistre'), dejaOuverte = d.open;
+    if (!dejaOuverte) {   // une fenêtre déjà ouverte garde ce que la personne est en train de saisir
+      d.classList.toggle('debut', debut);
+      d.toggleAttribute('data-obligatoire', debut);
+      $('#registreTitre').textContent = debut ? 'Identification' : 'Registre commun';
+      $('#regContinuer').textContent = debut ? 'Continuer' : 'Enregistrer';
+      $('#regNom').value = donnees.reglages.nom;
+      $('#regCode').value = donnees.reglages.code;
+      $('#regCode').type = 'password';
+      $('#regAfficher').checked = false;
+      $('#regAutre').hidden = !(debut && nom());
+    }
+    const enDebut = d.classList.contains('debut');
+    $('#registreMsg').textContent = message || (enDebut
+      ? texteIdentification(!!nom())
+      : 'Chaque action (panne relevée, signalement, réparation, contrôle) est inscrite dans le registre commun de l\'équipe, avec votre nom.');
     $('#registreMsg').classList.toggle('alerte', !!message);
     const att = donnees.file.length;
     $('#registreEtat').textContent = [
@@ -1609,7 +1627,11 @@
         ? 'Script Google à jour : réparations du service réseau et messages au concepteur actifs.'
         : 'Le script Google n\'est pas encore à jour : les réparations du service réseau et les messages au concepteur attendent sa mise à jour.';
     }
-    if (!d.open) d.showModal();
+    if (!dejaOuverte) {
+      d.showModal();
+      // le curseur va là où il y a quelque chose à faire : nom, puis code, puis « Continuer »
+      if (debut) ($('#regNom').value.trim() ? ($('#regCode').value.trim() ? $('#regContinuer') : $('#regCode')) : $('#regNom')).focus();
+    }
   }
 
   // ---------- Événements ----------
@@ -1834,7 +1856,7 @@
     const b = e.target.closest('[data-envoi]');
     if (b) envoyer(b.dataset.envoi);
   });
-  $$('dialog').forEach(d => d.addEventListener('click', e => { if (e.target === d) d.close(); }));
+  $$('dialog').forEach(d => d.addEventListener('click', e => { if (e.target === d && !d.hasAttribute('data-obligatoire')) d.close(); }));
   $$('[data-fermer]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close('cancel')));
 
   // Registre commun : nom et code d'accès
@@ -1930,8 +1952,31 @@
   }
   $('#dlgRegistre form').addEventListener('submit', e => {
     if (e.submitter && e.submitter.value !== 'ok') return;
+    const nomSaisi = $('#regNom').value.trim(), codeSaisi = $('#regCode').value.trim();
+    if (!nomSaisi || !codeSaisi) {   // des espaces seuls ne comptent pas : la fenêtre reste ouverte
+      e.preventDefault();
+      (nomSaisi ? $('#regCode') : $('#regNom')).focus();
+      return;
+    }
+    $('#dlgRegistre').removeAttribute('data-obligatoire');   // identifié : la fenêtre peut se fermer
     lireIdentite();
     rafraichir();
+  });
+  // Identification de l'ouverture : ni Échap, ni clic à côté, ni retour arrière ne la ferment
+  const dlgReg = $('#dlgRegistre');
+  const identificationObligatoire = () => dlgReg.hasAttribute('data-obligatoire');
+  dlgReg.addEventListener('cancel', e => { if (identificationObligatoire()) e.preventDefault(); });
+  dlgReg.addEventListener('keydown', e => { if (e.key === 'Escape' && identificationObligatoire()) e.preventDefault(); });
+  dlgReg.addEventListener('close', () => {   // dernier recours (geste « retour » d'un téléphone) : on la rouvre
+    if (identificationObligatoire()) setTimeout(() => { if (!dlgReg.open) dlgReg.showModal(); }, 0);
+  });
+  $('#regAfficher').addEventListener('change', e => { $('#regCode').type = e.target.checked ? 'text' : 'password'; });
+  $('#regAutre').addEventListener('click', () => {   // ordinateur partagé : une autre personne s'identifie
+    $('#regNom').value = '';
+    $('#regCode').value = '';
+    $('#regAutre').hidden = true;
+    $('#registreMsg').textContent = texteIdentification(false);
+    $('#regNom').focus();
   });
   $('#formAvis').addEventListener('submit', e => {
     if (e.submitter && e.submitter.value !== 'ok') return;
@@ -1976,8 +2021,8 @@
 
   if (registreConfigure()) {
     $('[data-menu="registre"]').hidden = false;
-    if (!donnees.reglages.code || !nom()) setTimeout(() => ouvrirRegistre(), 400);
-    else rafraichir();
+    ouvrirRegistre(undefined, true);   // la première chose affichée : l'identification
+    if (donnees.reglages.code) rafraichir();   // l'état des postes se charge pendant ce temps
     setInterval(rafraichir, 60000);
     setInterval(() => { if (donnees.file.length && !statut.envoi) envoyerFile(); }, 30000);
     document.addEventListener('visibilitychange', () => { if (document.hidden) balise(); else rafraichir(); });
