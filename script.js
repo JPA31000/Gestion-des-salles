@@ -55,7 +55,7 @@
   const donneesVides = () => ({
     version: 4, savedAt: null, reglages: { nom: '', code: '', appareil: '' },
     salles: Object.fromEntries(SALLES.map(s => [s, salleVide()])),
-    file: [], sync: { dernier: null, feuille: '', repris: false }
+    file: [], sync: { dernier: null, feuille: '', role: '', repris: false }
   });
 
   function normaliser(src) {
@@ -66,7 +66,9 @@
     out.reglages.code = String(src.reglages?.code || '');
     out.reglages.appareil = String(src.reglages?.appareil || '');
     out.file = Array.isArray(src.file) ? src.file.filter(e => e && e.id) : [];
-    out.sync = { dernier: src.sync?.dernier || null, feuille: String(src.sync?.feuille || ''), repris: !!src.sync?.repris };
+    // Le lien vers la feuille n'est gardé que pour le responsable
+    const role = src.sync?.role === 'responsable' ? 'responsable' : (src.sync?.role === 'equipe' ? 'equipe' : '');
+    out.sync = { dernier: src.sync?.dernier || null, feuille: role === 'responsable' ? String(src.sync?.feuille || '') : '', role, repris: !!src.sync?.repris };
     for (const [id, s] of Object.entries(src.salles || {})) {
       if (!CFG.salles[id] || !s) continue;
       const R = out.salles[id];
@@ -1022,6 +1024,9 @@
     }
   }
 
+  // Réponse de doPost (état de tous les postes), et non la page d'accueil du service (doGet)
+  const reponseComplete = r => Array.isArray(r.etat);
+
   function erreurRegistre(code) {
     const avant = statut.erreur;
     statut.erreur = code || 'serveur';
@@ -1036,7 +1041,9 @@
     lot.forEach(e => enVol.add(e.id));
     try {
       const r = await appel({ action: 'envoyer', evenements: lot });
-      if (r.ok) {
+      // Une réponse sans état n'est pas un accusé de réception : les actions restent en attente
+      if (r.ok && !reponseComplete(r)) statut.erreur = 'serveur';
+      else if (r.ok) {
         const ids = new Set(lot.map(e => e.id));
         donnees.file = donnees.file.filter(e => !ids.has(e.id));
         statut.erreur = null;
@@ -1060,7 +1067,9 @@
     if (donnees.file.length) return envoyerFile();   // l'envoi rapporte aussi l'état à jour
     try {
       const r = await appel({ action: 'etat' });
-      if (r.ok) { statut.erreur = null; appliquerEtat(r); } else erreurRegistre(r.erreur);
+      if (r.ok && reponseComplete(r)) { statut.erreur = null; appliquerEtat(r); }
+      else if (r.ok) statut.erreur = 'serveur';
+      else erreurRegistre(r.erreur);
     } catch (e) {
       statut.erreur = 'reseau';
     }
@@ -1085,7 +1094,10 @@
   }
 
   function appliquerEtat(r) {
-    if (r.feuille) donnees.sync.feuille = r.feuille;
+    // Seul le code responsable reçoit l'adresse de la feuille Google
+    donnees.sync.role = r.role === 'responsable' ? 'responsable' : 'equipe';
+    donnees.sync.feuille = donnees.sync.role === 'responsable' ? String(r.feuille || '') : '';
+    majMenuResponsable();
     donnees.sync.dernier = maintenant();
     const distant = Array.isArray(r.etat) ? r.etat : [];
     if (!donnees.sync.repris) reprendre(distant);
@@ -1154,6 +1166,7 @@
     try {
       const r = await appel({ action: 'historique', salle: id, poste: n, max: n ? 20 : 12 });
       if (!r.ok) { erreurRegistre(r.erreur); majSauvegarde(); return message('Registre indisponible.'); }
+      if (!Array.isArray(r.evenements)) return message('Registre indisponible pour le moment.');
       cacheHisto.set(cle, { t: Date.now(), evs: r.evenements || [] });
       afficher(r.evenements || []);
     } catch (e) {
@@ -1181,8 +1194,12 @@
       att ? `${att} action${att > 1 ? 's' : ''} en attente d'envoi.` : ''
     ].join(' ');
     const lien = $('#lienFeuille');
-    lien.hidden = !donnees.sync.feuille;
-    if (donnees.sync.feuille) lien.href = donnees.sync.feuille;
+    const responsable = donnees.sync.role === 'responsable' && !!donnees.sync.feuille;
+    lien.hidden = !responsable;
+    if (responsable) {
+      lien.href = donnees.sync.feuille;
+      $('#registreEtat').textContent += ' Connecté avec le code responsable.';
+    }
     if (!d.open) d.showModal();
   }
 
@@ -1350,7 +1367,8 @@
     ({
       fiche: imprimerFiche, csv: exporterCsv, sauver: sauvegarderFichier,
       restaurer: () => $('#fileImport').click(), aide: () => $('#dlgAide').showModal(), effacer: effacerTout,
-      registre: () => ouvrirRegistre()
+      registre: () => ouvrirRegistre(),
+      feuille: () => { if (donnees.sync.role === 'responsable' && donnees.sync.feuille) window.open(donnees.sync.feuille, '_blank', 'noopener'); }
     })[b.dataset.menu]();
   });
   $('#fileImport').addEventListener('change', e => {
@@ -1376,19 +1394,28 @@
 
   // Registre commun : nom et code d'équipe
   $('#saveState').addEventListener('click', () => { if (registreConfigure()) ouvrirRegistre(); });
-  $('#dlgRegistre form').addEventListener('submit', e => {
-    if (e.submitter && e.submitter.value !== 'ok') return;
+  function lireIdentite() {
+    const code = $('#regCode').value.trim();
+    if (code !== donnees.reglages.code) {   // nouveau code : les droits seront redonnés par le registre
+      donnees.sync.role = '';
+      donnees.sync.feuille = '';
+      majMenuResponsable();
+    }
     donnees.reglages.nom = $('#regNom').value.trim();
-    donnees.reglages.code = $('#regCode').value.trim();
+    donnees.reglages.code = code;
     statut.erreur = null;
     sauver();
+  }
+  function majMenuResponsable() {
+    $('[data-menu="feuille"]').hidden = !(donnees.sync.role === 'responsable' && donnees.sync.feuille);
+  }
+  $('#dlgRegistre form').addEventListener('submit', e => {
+    if (e.submitter && e.submitter.value !== 'ok') return;
+    lireIdentite();
     rafraichir();
   });
   $('#btnSync').addEventListener('click', async () => {
-    donnees.reglages.nom = $('#regNom').value.trim();
-    donnees.reglages.code = $('#regCode').value.trim();
-    statut.erreur = null;
-    sauver();
+    lireIdentite();
     $('#registreEtat').textContent = 'Échange avec le registre…';
     await rafraichir();
     ouvrirRegistre(statut.erreur === 'code' ? 'Le code d\'équipe a été refusé par le registre.'
@@ -1420,6 +1447,7 @@
 
   if (registreConfigure()) {
     $('[data-menu="registre"]').hidden = false;
+    majMenuResponsable();
     if (!donnees.reglages.code || !nom()) setTimeout(() => ouvrirRegistre(), 400);
     else rafraichir();
     setInterval(rafraichir, 60000);
