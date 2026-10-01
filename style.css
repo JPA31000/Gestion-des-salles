@@ -361,7 +361,7 @@ table.list { width: 100%; border-collapse: collapse; font-size: 14px; }
 .histo li.repare::before { border-color: var(--brand); background: var(--brand-soft); }
 .histo li.controle::before { border-color: var(--brand); background: var(--brand-soft); }
 .histo li.modif::before, .histo li.reprise::before { border-color: var(--new-line); background: var(--new-fill); }
-.histo li.obs_salle::before { border-color: var(--obs); }
+.histo li.obs_salle::before, .histo li.plan::before { border-color: var(--obs); }
 .histo .d { color: var(--muted); font-size: 12px; }
 .histo .vide { font-size: 13px; color: var(--muted); }
 
